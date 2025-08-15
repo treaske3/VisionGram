@@ -3,7 +3,6 @@ default_platform(:ios)
 platform :ios do
   desc "CI: build and upload to TestFlight"
   lane :ci_beta do
-    # Temporary keychain on the runner
     create_keychain(
       name: "ci_keychain",
       default_keychain: true,
@@ -12,7 +11,6 @@ platform :ios do
       lock_when_sleeps: false
     )
 
-    # App Store Connect API key
     api_key = app_store_connect_api_key(
       key_id: ENV["ASC_KEY_ID"],
       issuer_id: ENV["ASC_ISSUER_ID"],
@@ -21,7 +19,6 @@ platform :ios do
       in_house: false
     )
 
-    # Pull/create certs & profiles
     match(
       type: "appstore",
       readonly: false,
@@ -34,20 +31,21 @@ platform :ios do
       verbose: true
     )
 
-    # >>> IMPORTANT: run build inside the ios/ folder <<<
-    Dir.chdir("ios") do
-      # If you didn't set IOS_SCHEME, try to infer from the .xcodeproj name; fallback to "VisionGram"
-      inferred_scheme = Dir["*.xcodeproj"].map { |p| File.basename(p, ".xcodeproj") }.first
-      scheme_name = ENV.fetch("IOS_SCHEME", inferred_scheme || "VisionGram")
+    # >>> Explicitly locate the workspace under ios/
+    xcworkspace = Dir["ios/*.xcworkspace"].first
+    UI.user_error!("No .xcworkspace found in ios/") unless xcworkspace
 
-      build_ios_app(
-        workspace: Dir["*.xcworkspace"].first, # now relative to ios/
-        scheme: scheme_name,
-        configuration: "Release",
-        export_method: "app-store",
-        clean: true
-      )
-    end
+    # >>> Force a scheme so Fastlane never tries to auto-detect at repo root
+    #     If you change your app name, you can set a repo variable IOS_SCHEME in GitHub.
+    scheme_name = ENV["IOS_SCHEME"] || "VisionGram"
+
+    build_ios_app(
+      workspace: xcworkspace,     # e.g., ios/VisionGram.xcworkspace
+      scheme: scheme_name,        # e.g., VisionGram
+      configuration: "Release",
+      export_method: "app-store",
+      clean: true
+    )
 
     upload_to_app_store(
       api_key: api_key,
