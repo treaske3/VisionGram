@@ -32,7 +32,8 @@ jobs:
 
       - name: Prebuild iOS (Expo → native at root)
         run: npx expo prebuild -p ios --no-install
-        - name: Patch Podfile (remove privacy_file_aggregation_enabled)
+        
+      - name: Patch Podfile (remove privacy_file_aggregation_enabled)
   working-directory: ios
   run: |
     if [ -f Podfile ]; then
