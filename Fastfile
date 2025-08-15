@@ -30,7 +30,7 @@ platform :ios do
     )
     scheme_name = ENV.fetch("IOS_SCHEME", "VisionGram")
     build_ios_app(
-      workspace: Dir["ios/*.xcworkspace"].first,
+    workspace: Dir["../ios/*.xcworkspace"].first,
       scheme: scheme_name,
       configuration: "Release",
       export_method: "app-store",
