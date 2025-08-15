@@ -46,6 +46,12 @@ jobs:
         working-directory: ios
         run: pod install --repo-update
 
+       - name: Show iOS dir (debug)
+  run: |
+    ls -la ios
+    echo "Workspace(s):"
+    ls -la ios/*.xcworkspace || true
+
       - name: Show repo tree (debug)
         run: |
           ls -la
