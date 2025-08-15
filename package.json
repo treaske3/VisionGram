@@ -1,0 +1,22 @@
+{
+  "name": "visiongram",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start",
+    "ios": "expo start --ios",
+    "prebuild:ios": "expo prebuild -p ios --no-install"
+  },
+  "dependencies": {
+    "expo": "~51.0.0",
+    "react": "18.2.0",
+    "react-native": "0.74.0",
+    "@react-navigation/native": "^6.1.9",
+    "@react-navigation/native-stack": "^6.9.17",
+    "expo-notifications": "~0.28.14",
+    "expo-secure-store": "~13.0.2",
+    "expo-linking": "~6.3.1",
+    "crypto-js": "^4.2.0"
+  }
+}
