@@ -4,7 +4,7 @@
     "slug": "visiongram",
     "scheme": "visiongram",
     "ios": {
-      "bundleIdentifier": "com.yourdomain.visiongram",
+      "bundleIdentifier": "com.visiongram.app",
       "supportsTablet": false
     }
   }
