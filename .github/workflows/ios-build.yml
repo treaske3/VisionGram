@@ -1,0 +1,63 @@
+name: iOS CI (TestFlight)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure bundler
+        run: |
+          ruby -v
+          gem install bundler
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install global CLIs
+        run: |
+          npm i -g expo-cli eas-cli
+          brew install cocoapods
+          pod --version
+
+      - name: Install JS deps (root)
+        run: npm install
+
+      - name: Prebuild iOS (Expo → native at root)
+        run: npx expo prebuild -p ios --no-install
+
+      - name: Install iOS pods
+        working-directory: ios
+        run: pod install --repo-update
+
+      - name: Show repo tree (debug)
+        run: |
+          ls -la
+          ls -la ios || true
+
+      - name: Bundle install (fastlane at root)
+        run: bundle install --path vendor/bundle
+
+      - name: Fastlane (CI beta to TestFlight)
+        env:
+          APP_IDENTIFIER: ${{ secrets.APP_IDENTIFIER }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+
+          IOS_SCHEME: ${{ vars.IOS_SCHEME }}
+        run: bundle exec fastlane ios ci_beta
