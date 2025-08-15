@@ -28,7 +28,7 @@ jobs:
           pod --version
 
       - name: Install JS deps
-        run: npm ci
+        run: npm install
 
       - name: Prebuild iOS (Expo → native)
         run: npx expo prebuild -p ios --no-install
