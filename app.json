@@ -2,10 +2,8 @@
   "expo": {
     "name": "VisionGram",
     "slug": "visiongram",
-    "scheme": "visiongram",
-    "ios": {
-      "bundleIdentifier": "com.visiongram.app",
-      "supportsTablet": false
+    "extra": {
+      "eas": { "projectId": "visiongram-xfzkowyehgspo-syiufig }
     }
   }
 }
