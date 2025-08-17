@@ -1,0 +1,29 @@
+{
+  "cli": {
+    "version": ">= 13.0.0"
+  },
+  "build": {
+    "development": {
+      "resourceClass": "medium",
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "resourceClass": "medium",
+      "distribution": "internal"
+    },
+    "production": {
+      "resourceClass": "medium",
+      "distribution": "store"
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "ascAppId": "${{ secrets.APP_STORE_APPLE_ID }}",
+        "ascApiKeyPath": "./asc_api_key.json",
+        companyName": "VisionGram"
+      }
+    }
+  }
+}
