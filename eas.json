@@ -1,0 +1,13 @@
+{
+  "cli": {
+    "version": ">= 3.9.2"
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "ascApiKeyPath": "./asc_api_key.json",
+        "companyName": "VisionGram"
+      }
+    }
+  }
+}
