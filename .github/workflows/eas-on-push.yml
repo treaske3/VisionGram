@@ -1,0 +1,34 @@
+name: EAS iOS TestFlight on push
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-submit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install dependencies
+        run: npm install
+      - name: Expo login (EXPO_TOKEN)
+        uses: expo/expo-github-action@v8
+        with:
+          expo-version: latest
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Write App Store Connect API key JSON
+        run: |
+          echo "${{ secrets.APP_STORE_CONNECT_API_KEY_JSON }}" > asc_api_key.json
+      - name: Install EAS CLI
+        run: npm install --global eas-cli
+      - name: EAS Build (ios)
+        run: eas build --platform ios --profile production --non-interactive --no-wait
+      - name: EAS Submit to TestFlight
+        run: eas submit --platform ios --profile production --non-interactive
