@@ -15,7 +15,7 @@ jobs:
           node-version: "20"
       - name: Install dependencies
         run: |
-          npm ci || npm install
+     npm install
       - name: Expo login (EXPO_TOKEN)
         uses: expo/expo-github-action@v8
         with:
