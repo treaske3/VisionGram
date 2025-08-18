@@ -1,0 +1,14 @@
+{
+  "expo": {
+    "name": "VisionGram",
+    "slug": "visiongram-xfzkowyehgspo-syiufig",
+    "extra": {
+      "eas": {
+        "projectId": "eddf20ca-614a-4b27-9d03-63d931e796a6"
+      }
+    },
+    "ios": {
+      "bundleIdentifier": "com.visiongram.app"
+    }
+  }
+}
