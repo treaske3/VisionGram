@@ -30,4 +30,4 @@ jobs:
       - name: EAS Build (ios)
         run: eas build --platform ios --profile production --non-interactive --no-wait
       - name: EAS Submit to TestFlight
-        run: eas submit --platform ios --profile production --non-interactive --latest
+        run: eas submit --platform ios --profile production --non-interactive --latest --asc-api-key-path asc_api_key.json
