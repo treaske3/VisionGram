@@ -1,0 +1,4 @@
+app_identifier ENV["APP_IDENTIFIER"]   # com.visiongram.app
+apple_id      ENV["APPLE_ID"]          # treaske@gmail.com
+team_id       ENV["TEAM_ID"]
+itc_team_id   ENV["TEAM_ID"]
