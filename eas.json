@@ -8,9 +8,6 @@
   },
   "submit": {
     "production": {
-      "ascApiKeyId": "HJ5S2PTMX4",
-      "ascApiKeyIssuerId": "05448018-fd93-49f6-8700-e8c51d49b5c6",
-      "ascApiKeyPath": "./asc_key.p8",
       "ios": {
         "ascApiKeyPath": "./asc_key.p8",
         "companyName": "VisionGram"
