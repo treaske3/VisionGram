@@ -1,4 +1,7 @@
-name: EAS ios TestFlight on push
+- name: Install JS deps
+  run: npm install
+
+- name: EAS ios TestFlight on push
 
 on:
   push:
