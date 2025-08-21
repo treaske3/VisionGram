@@ -37,12 +37,26 @@ jobs:
             exit 1
           fi
 
-      - name: Patch Podfile (remove privacy_file_aggregation_enabled)
+           - name: Patch Podfile (remove privacy flag + add modular headers for jsinspector)
         working-directory: ios
         run: |
+          set -e
           if [ -f Podfile ]; then
-            if grep -q "privacy_file_aggregation_enabled" Podfile; then
-              sed -i '' '/privacy_file_aggregation_enabled/d' Podfile
+            # 1) Remove the unsupported privacy flag if present
+            sed -i '' '/privacy_file_aggregation_enabled/d' Podfile || true
+
+            # 2) Make React-jsinspector export a module map so Swift (ExpoModulesCore) can import it
+            if ! grep -q "pod 'React-jsinspector', :modular_headers => true" Podfile; then
+              # Insert a jsinspector pod line right after the use_react_native! call
+              awk '
+                BEGIN{done=0}
+                /use_react_native!\(/ && done==0 {
+                  print; 
+                  print "  pod '\''React-jsinspector'\'', :modular_headers => true";
+                  done=1; next
+                }
+                {print}
+              ' Podfile > Podfile.tmp && mv Podfile.tmp Podfile
             fi
           fi
 
