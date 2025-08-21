@@ -37,19 +37,19 @@ jobs:
             exit 1
           fi
 
-      - name: Patch Podfile (remove privacy flag + add modular headers for jsinspector)
+      - name: Patch Podfile (remove privacy flag + fix jsinspector)
         working-directory: ios
         run: |
           set -e
           if [ -f Podfile ]; then
-            # Remove unsupported privacy flag if present
+            # Remove unsupported privacy flag
             sed -i '' '/privacy_file_aggregation_enabled/d' Podfile || true
-            # Add React-jsinspector with modular headers if not already present
-            if ! grep -q "pod 'React-jsinspector'" Podfile; then
-              echo "pod 'React-jsinspector', :modular_headers => true" >> Podfile
-            fi
+            # Remove any existing React-jsinspector pods
+            sed -i '' '/React-jsinspector/d' Podfile || true
+            # Add React-jsinspector with modular headers
+            echo "  pod 'React-jsinspector', :modular_headers => true" >> Podfile
           fi
-
+          
       - name: Install iOS pods
         working-directory: ios
         run: pod install --repo-update
