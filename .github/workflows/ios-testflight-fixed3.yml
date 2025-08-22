@@ -1,0 +1,62 @@
+name: iOS TestFlight (fixed3)
+on:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure bundler
+        run: |
+          ruby -v
+          gem install bundler
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - name: Install global CLIs
+        run: |
+          npm i -g expo-cli eas-cli
+          brew install cocoapods
+          pod --version
+      - name: Install JS deps
+        run: npm install
+      - name: Prebuild iOS
+        run: |
+          npx expo prebuild -p ios --no-install --clean
+          if [ ! -d "ios" ]; then
+            echo "::error::Expo prebuild did not create ios/; aborting."
+            exit 1
+          fi
+      - name: Patch Podfile
+        working-directory: ios
+        run: |
+          set -e
+          if [ -f Podfile ]; then
+            sed -i '' '/privacy_file_aggregation_enabled/d' Podfile || true
+            sed -i '' '/React-jsinspector/d' Podfile || true
+            echo "  pod 'React-jsinspector', :path => '../node_modules/react-native/ReactCommon/jsinspector-modern', :modular_headers => true" >> Podfile
+          fi
+      - name: Install iOS pods
+        working-directory: ios
+        run: pod install --repo-update
+      - name: Show iOS dir
+        run: |
+          ls -la ios
+          echo "Workspace(s):"
+          ls -la ios/*.xcworkspace || true
+      - name: Bundle install
+        run: bundle install --path vendor/bundle
+      - name: Fastlane (CI beta to TestFlight)
+        env:
+          APP_IDENTIFIER: ${{ secrets.APP_IDENTIFIER }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          IOS_SCHEME: ${{ vars.IOS_SCHEME }}
+        run: bundle exec fastlane ios ci_beta
