@@ -5,6 +5,8 @@ platform :ios do
   lane :ci_beta do
     create_keychain(
       name: "ci_keychain",
+      password: "ci_keychain",
+
       default_keychain: true,
       unlock: true,
       timeout: 3600,
