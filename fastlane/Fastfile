@@ -23,7 +23,7 @@ platform :ios do
 
     automatic_code_signing(
       use_automatic_signing: true,
-      path: 'ios',
+      path'ios/VisionGram.xcodeproj',
       team_id: ENV["TEAM_ID"]
     )
 
