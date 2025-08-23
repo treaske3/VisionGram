@@ -1,0 +1,121 @@
+name: iOS TestFlight (stable)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Ruby & Bundler
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+
+      - name: Ensure bundler & print versions
+        run: |
+          ruby -v
+          bundle -v || true
+
+      - name: Set up Node 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install JS deps (root)
+        run: npm install
+
+      - name: Ensure expo-modules-autolinking is available
+        run: |
+          node -e "try{require('expo-modules-autolinking');process.exit(0)}catch(e){process.exit(1)}" \
+          || npm install --save-dev expo-modules-autolinking
+
+      - name: Expo prebuild iOS
+        run: |
+          npx expo prebuild -p ios --no-install --clean
+          if [ ! -d "ios" ]; then
+            echo "::error::expo prebuild did not create ios/; aborting."
+            exit 1
+          fi
+
+      - name: Patch Podfile (idempotent)
+        working-directory: ios
+        shell: bash
+        run: |
+          set -e
+          # 1) Remove unsupported privacy flag if present
+          sed -i '' '/privacy_file_aggregation_enabled/d' Podfile || true
+
+          # 2) Remove ALL existing React-jsinspector lines
+          sed -i '' '/React-jsinspector/d' Podfile || true
+
+          # 3) Ensure use_modular_headers! exists (insert after platform)
+          if ! grep -q "^use_modular_headers!" Podfile; then
+            awk '
+              BEGIN{added=0}
+              /^platform/ && added==0 {print; print ""; print "use_modular_headers!"; added=1; next}
+              {print}
+            ' Podfile > Podfile.tmp && mv Podfile.tmp Podfile
+          fi
+
+          # 4) Choose correct jsinspector path for RN 0.74+
+          JSI_MODERN="../node_modules/react-native/ReactCommon/jsinspector-modern"
+          JSI_OLD="../node_modules/react-native/ReactCommon/jsinspector"
+          if [ -d "$JSI_MODERN" ]; then
+            JSI_PATH="$JSI_MODERN"
+          else
+            JSI_PATH="$JSI_OLD"
+          fi
+
+          # 5) Append ONE modular-headers definition
+          echo "  pod 'React-jsinspector', :path => '$JSI_PATH', :modular_headers => true" >> Podfile
+
+      - name: Validate Podfile before pods
+        working-directory: ios
+        run: |
+          echo "---- Podfile ----"
+          sed -n '1,120p' Podfile
+          echo "-----------------"
+          COUNT=$(grep -c "React-jsinspector" Podfile || true)
+          if [ "$COUNT" -gt 1 ]; then
+            echo "::error::Multiple React-jsinspector entries in Podfile ($COUNT)."
+            exit 1
+          fi
+          if ! grep -q "^use_modular_headers!" Podfile; then
+            echo "::error::use_modular_headers! not found in Podfile."
+            exit 1
+          fi
+
+      - name: Install CocoaPods (pinned)
+        run: bundle install --path vendor/bundle
+
+      - name: Install iOS pods
+        working-directory: ios
+        run: |
+          bundle exec pod repo update
+          bundle exec pod install --repo-update
+          ls -la
+
+      - name: Show iOS dir (debug)
+        run: |
+          ls -la ios
+          echo "Workspace(s):"
+          ls -la ios/*.xcworkspace || true
+
+      - name: Fastlane (build & upload to TestFlight)
+        env:
+          APP_IDENTIFIER: ${{ secrets.APP_IDENTIFIER }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          IOS_SCHEME: ${{ vars.IOS_SCHEME }}
+        run: |
+          bundle exec fastlane ios ci_beta
