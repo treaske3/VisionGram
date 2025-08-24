@@ -1,76 +1,128 @@
-# Fastfile
 default_platform :ios
 
 platform :ios do
   desc "CI: build and upload to TestFlight"
   lane :ci_beta do
-    # 1. Create CI keychain (expects KEYCHAIN_PASSWORD env var)
+    require "open3"
+
+    # ---------- Paths ----------
+    ROOT    = File.expand_path("..", __dir__)   # repo root (one up from fastlane/)
+    IOS_DIR = File.join(ROOT, "ios")
+    PODFILE = File.join(IOS_DIR, "Podfile")
+
+    # ---------- Keychain for CI ----------
     create_keychain(
       name: "ci_keychain",
-      password: ENV.fetch("KEYCHAIN_PASSWORD"),
+      password: ENV.fetch("CI_KEYCHAIN_PW"),
       default_keychain: true,
-      timeout: 0 # no timeout
+      unlock: true,
+      timeout: 3600,
+      lock_when_sleeps: false
     )
 
-    # 2. Load App Store Connect API key
-    app_store_connect_api_key(
-      key_id:      ENV.fetch("API_KEY_ID"),
-      issuer_id:   ENV.fetch("API_KEY_ISSUER_ID"),
-      key:         ENV.fetch("API_PRIVATE_KEY"),
-      duration:    1200,
+    # ---------- App Store Connect API key ----------
+    api_key = app_store_connect_api_key(
+      key_id:      ENV.fetch("ASC_KEY_ID"),
+      issuer_id:   ENV.fetch("ASC_ISSUER_ID"),
+      key_content: ENV.fetch("ASC_API_KEY_P8"),
+      is_key_content_base64: false,
       in_house:    false
     )
 
-    # 3. Locate the iOS workspace and scheme
-    IOS_DIR      = "ios"
-    xcworkspace  = Dir["#{IOS_DIR}/*.xcworkspace"].first || UI.user_error!("No .xcworkspace found in ios/")
-    scheme_name  = ENV["IOS_SCHEME"] || "VisionGram"
+    # ---------- Ensure ios/ exists (Expo prebuild fallback) ----------
+    unless Dir.exist?(IOS_DIR)
+      UI.important("No ios/ folder found — running Expo prebuild fallback…")
+      sh(%Q{bash -lc 'cd "#{ROOT}" && npx expo prebuild -p ios --no-install --clean'})
+      UI.user_error!("Expo prebuild did not create ios/") unless Dir.exist?(IOS_DIR)
+    end
 
-    # 4. Determine provisioning profile name
-    #    If $PROFILE_NAME isn’t set, fallback to the name you copied: "VisionGram App Store Profile"
-    profile_name = ENV["PROFILE_NAME"].to_s.strip
-    profile_name = "VisionGram App Store Profile" if profile_name.empty?
-    UI.user_error!(
-      "PROFILE_NAME env not set. Confirm the import step ran BEFORE Fastlane "\
-      "and that the App Store .mobileprovision targets #{ENV['APP_IDENTIFIER']}."
-    ) if profile_name.empty?
+    # ---------- Idempotent Podfile patch ----------
+    if File.exist?(PODFILE)
+      contents = File.read(PODFILE)
 
-    # 5. Set the project’s team ID
+      # Remove unsupported privacy flag if present
+      contents = contents.gsub(/.*privacy_file_aggregation_enabled.*\n/, "")
+
+      # Remove any existing jsinspector lines to avoid duplicates
+      contents = contents.gsub(/.*React-jsinspector.*\n/, "")
+
+      # Ensure use_modular_headers! once (insert after platform line)
+      unless contents.include?("use_modular_headers!")
+        lines = contents.lines
+        idx = lines.index { |l| l.strip.start_with?("platform ") } || 0
+        lines.insert(idx + 1, "\nuse_modular_headers!\n")
+        contents = lines.join
+      end
+
+      # Choose jsinspector path for RN 0.74+ (modern) or fallback
+      js_modern = "../node_modules/react-native/ReactCommon/jsinspector-modern"
+      js_old    = "../node_modules/react-native/ReactCommon/jsinspector"
+      js_path   = Dir.exist?(File.join(IOS_DIR, js_modern)) ? js_modern : js_old
+
+      # Append one modular-headers definition if not present
+      unless contents.include?("pod 'React-jsinspector'")
+        contents << "\n  pod 'React-jsinspector', :path => '#{js_path}', :modular_headers => true\n"
+      end
+
+      File.write(PODFILE, contents)
+    else
+      UI.user_error!("Podfile not found at #{PODFILE}")
+    end
+
+    # ---------- Install Pods ----------
+    sh(%Q{bash -lc 'cd "#{IOS_DIR}" && pod repo update'})
+    sh(%Q{bash -lc 'cd "#{IOS_DIR}" && pod install --repo-update'})
+
+    # ---------- Signing: set Team + Manual for Release ----------
     update_project_team(
       path:    File.join(IOS_DIR, "VisionGram.xcodeproj"),
       teamid:  ENV.fetch("TEAM_ID"),
       targets: ["VisionGram"]
     )
 
-    # 6. Use manual signing for the Release build, specifying the distribution certificate & profile
     update_code_signing_settings(
-      use_automatic_signing: false,
+      path:                  File.join(IOS_DIR, "VisionGram.xcodeproj"),
+      use_automatic_signing: false,                      # MANUAL for Release
+      team_id:               ENV.fetch("TEAM_ID"),
       code_sign_identity:    "Apple Distribution",
-      profile_name:          profile_name,
+      profile_name:          "VisionGram App Store Profile",
       build_configuration:   "Release",
-      targets:               ["VisionGram"],
-      path:                  File.join(IOS_DIR, "VisionGram.xcodeproj")
+      targets:               ["VisionGram"]
     )
 
-    # 7. Build the app using the imported profile & certificate
+    # ---------- Build with explicit profile mapping ----------
+    xcworkspace = Dir[File.join(IOS_DIR, "*.xcworkspace")].first || UI.user_error!("No .xcworkspace found in ios/")
+    scheme_name = ENV["IOS_SCHEME"] || "VisionGram"
+
     build_ios_app(
       workspace:      xcworkspace,
       scheme:         scheme_name,
+      configuration:  "Release",
       export_method:  "app-store",
-      output_directory: "./fastlane/build",
-      clean:            true,
+      clean:          true,
+      # Belt & suspenders to suppress any auto-sign remnants from Expo defaults
+      xcargs: %Q[CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Apple Distribution" PROVISIONING_PROFILE_SPECIFIER="VisionGram App Store Profile"],
       export_options: {
         provisioningProfiles: {
-          ENV.fetch("APP_IDENTIFIER") => profile_name
+          ENV.fetch("APP_IDENTIFIER") => "VisionGram App Store Profile"
         },
         signingStyle: "manual"
       }
     )
 
+    upload_to_app_store(
+      api_key:            api_key,
+      skip_screenshots:   true,
+      skip_metadata:      true,
+      reject_if_possible: false,
+      submit_for_review:  false
+    )
   ensure
-  begin
-    delete_keychain(name: "ci_keychain")
-  rescue => e
-    UI.important("Keychain cleanup skipped: #{e.class} - #{e.message}")
+    # Always try to clean up; don’t fail if keychain wasn’t created
+    begin
+      delete_keychain(name: "ci_keychain")
+    rescue => e
+      UI.important("Keychain cleanup skipped: #{e.class} - #{e.message}")
+    end
   end
 end
