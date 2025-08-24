@@ -31,15 +31,14 @@ path: 'ios/VisionGram.xcodeproj',
 
 
 
-    # build INSIDE ios/
-    Dir.chdir("ios") do
-      xcworkspace = Dir["*.xcworkspace"].first
-      UI.user_error!("No .xcworkspace found in ios/") unless xcworkspace
+    # build using ios workspace (no chdir)
+    xcworkspace = Dir["ios/*.xcworkspace"].first
+    UI.user_error!("No .xcworkspace found in ios/") unless xcworkspace
 
-      scheme_name = ENV["IOS_SCHEME"] || "VisionGram"
+    scheme_name = ENV["IOS_SCHEME"] || "VisionGram"
 
-      build_ios_app(
-      workspace: xcworkspace,
+    build_ios_app(
+      workspace: xcworkspace,              # e.g. ios/VisionGram.xcworkspace
       scheme: scheme_name,
       configuration: "Release",
       export_method: "app-store",
