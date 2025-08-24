@@ -100,17 +100,19 @@ platform :ios do
 
     scheme_name = ENV["IOS_SCHEME"] || "VisionGram"
 
-   update_project_team(
-      xcodeproj: File.join(IOS_DIR, "VisionGram.xcodeproj"),
-      teamid: ENV["TEAM_ID"],
-      targets: ["VisionGram"]
-    )
+ # Point Fastlane at your Xcode project and set Team + Automatic signing
+update_project_team(
+  path: File.join(IOS_DIR, "VisionGram.xcodeproj"),  # <-- was xcodeproj:
+  teamid: ENV["TEAM_ID"],
+  targets: ["VisionGram"]
+)
 
-    automatic_code_signing(
-      use_automatic_signing: true,
-      team_id: ENV["TEAM_ID"],
-      targets: ["VisionGram"]
-    )
+automatic_code_signing(
+  path: File.join(IOS_DIR, "VisionGram.xcodeproj"),  # add path so action edits the right project
+  use_automatic_signing: true,
+  team_id: ENV["TEAM_ID"],
+  targets: ["VisionGram"]
+)
 
     build_ios_app(
       workspace: xcworkspace,            # e.g. ios/VisionGram.xcworkspace
