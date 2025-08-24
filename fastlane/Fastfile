@@ -11,14 +11,14 @@ platform :ios do
     PODFILE = File.join(IOS_DIR, "Podfile")
 
     # ---------- Keychain for CI ----------
-    create_keychain(
-      name: "ci_keychain",
-      password: ENV.fetch("CI_KEYCHAIN_PW"),
-      default_keychain: true,
-      unlock: true,
-      timeout: 3600,
-      lock_when_sleeps: false
-    )
+   create_keychain(
+  name: "ci_keychain",
+  password: (ENV["CI_KEYCHAIN_PW"] || ENV["KEYCHAIN_PASSWORD"] || "visiongram_ci_#{Time.now.to_i}"),
+  default_keychain: true,
+  unlock: true,
+  timeout: 3600,
+  lock_when_sleeps: false
+)
 
     # ---------- App Store Connect API key ----------
     api_key = app_store_connect_api_key(
