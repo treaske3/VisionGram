@@ -1,16 +1,16 @@
+# fastlane/Fastfile
 default_platform(:ios)
 
 platform :ios do
   desc "CI: build and upload to TestFlight"
   lane :ci_beta do
-    # ---- Paths (make everything repo-root absolute) ----
-    ROOT    = File.expand_path("..", __dir__)      # repo root (.. from fastlane/)
+    # ---------- Paths ----------
+    ROOT    = File.expand_path("..", __dir__)             # repo root (one up from fastlane/)
     IOS_DIR = File.join(ROOT, "ios")
     PODFILE = File.join(IOS_DIR, "Podfile")
 
-    # ---- Keychain password (from secret or generated) ----
+    # ---------- Keychain ----------
     pw = ENV["CI_KEYCHAIN_PW"] || "visiongram_ci_#{Time.now.to_i}_#{rand(1000..9999)}"
-
     create_keychain(
       name: "ci_keychain",
       password: pw,
@@ -20,53 +20,7 @@ platform :ios do
       lock_when_sleeps: false
     )
 
-    # ---- Ensure native iOS project exists (fallback if workflow missed prebuild) ----
-    unless Dir.exist?(IOS_DIR)
-      UI.important("No ios/ folder found — running Expo prebuild fallback from repo root…")
-      sh(%Q{bash -lc 'cd "#{ROOT}" && npx expo prebuild -p ios --no-install --clean'})
-      UI.user_error!("Expo prebuild did not create ios/") unless Dir.exist?(IOS_DIR)
-    end
-
-    # ---- Ensure Pods / .xcworkspace exist (self-heal & idempotent patch) ----
-    have_workspace = Dir[File.join(IOS_DIR, "*.xcworkspace")].any?
-    unless File.exist?(File.join(IOS_DIR, "Pods")) || have_workspace
-      UI.important("No Pods/.xcworkspace — patching Podfile and installing pods…")
-
-      # 1) Remove unsupported privacy flag (if present)
-      if File.exist?(PODFILE)
-        contents = File.read(PODFILE)
-        contents = contents.gsub(/.*privacy_file_aggregation_enabled.*\n/, "")
-      else
-        UI.user_error!("Podfile not found at #{PODFILE}")
-      end
-
-      # 2) Remove ALL existing React-jsinspector lines (avoid duplicates)
-      contents = contents.gsub(/.*React-jsinspector.*\n/, "")
-
-      # 3) Ensure use_modular_headers! exists (insert once after platform line)
-      unless contents.include?("use_modular_headers!")
-        lines = contents.lines
-        idx = lines.index { |l| l.strip.start_with?("platform ") } || 0
-        lines.insert(idx + 1, "\nuse_modular_headers!\n")
-        contents = lines.join
-      end
-
-      # 4) Choose correct jsinspector path (RN 0.74+: jsinspector-modern)
-      js_modern = "../node_modules/react-native/ReactCommon/jsinspector-modern"
-      js_old    = "../node_modules/react-native/ReactCommon/jsinspector"
-      js_path   = Dir.exist?(File.join(IOS_DIR, js_modern)) ? js_modern : js_old
-
-      # 5) Append ONE modular-headers definition
-      contents << "\n  pod 'React-jsinspector', :path => '#{js_path}', :modular_headers => true\n"
-
-      File.write(PODFILE, contents)
-
-      # Install pods from ios/ directory
-      sh(%Q{bash -lc 'cd "#{IOS_DIR}" && pod repo update'})
-      sh(%Q{bash -lc 'cd "#{IOS_DIR}" && pod install --repo-update'})
-    end
-
-    # ---- App Store Connect API key ----
+    # ---------- ASC API Key ----------
     api_key = app_store_connect_api_key(
       key_id: ENV["ASC_KEY_ID"],
       issuer_id: ENV["ASC_ISSUER_ID"],
@@ -75,98 +29,88 @@ platform :ios do
       in_house: false
     )
 
-    # App Store Connect API key already created above as `api_key`
-# ----- Fallback: create signing assets directly in CI -----
-KEYCHAIN_PATH = File.expand_path("~/Library/Keychains/ci_keychain-db")
+    # ---------- Ensure ios/ exists (Expo prebuild fallback) ----------
+    unless Dir.exist?(IOS_DIR)
+      UI.important("No ios/ folder found — running Expo prebuild fallback…")
+      sh(%Q{bash -lc 'cd "#{ROOT}" && npx expo prebuild -p ios --no-install --clean'})
+      UI.user_error!("Expo prebuild did not create ios/") unless Dir.exist?(IOS_DIR)
+    end
 
-# Normalize env flags that can conflict inside sigh
-ENV["SIGH_READONLY"] = "false"
-ENV["SIGH_FORCE"]    = "true"
+    # ---------- Idempotent Podfile patch ----------
+    if File.exist?(PODFILE)
+      contents = File.read(PODFILE)
 
-# 1) Ensure a Distribution certificate exists in the CI keychain
-cert(
-  api_key: api_key,
-  keychain_path: KEYCHAIN_PATH,
-  keychain_password: pw,
-  development: false,   # Distribution
-  force: false          # don't try to create if Apple says you're at the limit
-)
+      # Remove unsupported privacy flag if present
+      contents = contents.gsub(/.*privacy_file_aggregation_enabled.*\n/, "")
 
-# If Apple says you've reached the max certs, revoke one old “Apple Distribution” cert
-# in the Apple Developer portal and re-run.
+      # Remove any existing jsinspector lines to avoid duplicates
+      contents = contents.gsub(/.*React-jsinspector.*\n/, "")
 
-# 2) Create/renew an App Store provisioning profile and install it
-profile_path = sigh(
-  api_key: api_key,
-  app_identifier: ENV["APP_IDENTIFIER"],
-  adhoc: false,        # App Store
-  readonly: false,     # <- avoid conflict
-  force: true,         # <- create/renew if needed
-  skip_install: false,
-  team_id: ENV["TEAM_ID"]
-)
+      # Ensure use_modular_headers! once (insert after platform line)
+      unless contents.include?("use_modular_headers!")
+        lines = contents.lines
+        idx = lines.index { |l| l.strip.start_with?("platform ") } || 0
+        lines.insert(idx + 1, "\nuse_modular_headers!\n")
+        contents = lines.join
+      end
 
-profile_name = ENV["PROFILE_NAME"] || ENV['SIGH_PROFILE_NAME'] || Actions.lane_context[SharedValues::SIGH_PROFILE_NAME]
+      # Choose jsinspector path for RN 0.74+ (modern) or fallback
+      js_modern = "../node_modules/react-native/ReactCommon/jsinspector-modern"
+      js_old    = "../node_modules/react-native/ReactCommon/jsinspector"
+      js_path   = Dir.exist?(File.join(IOS_DIR, js_modern)) ? js_modern : js_old
 
-# 3) update_project_team(
-  path: File.join(IOS_DIR, "VisionGram.xcodeproj"),
-  teamid: ENV["TEAM_ID"],
-  targets: ["VisionGram"]
-)
+      # Append one modular-headers definition if not present
+      unless contents.include?("pod 'React-jsinspector'")
+        contents << "\n  pod 'React-jsinspector', :path => '#{js_path}', :modular_headers => true\n"
+      end
 
-# 4) update_code_signing_settings(
-  path: File.join(IOS_DIR, "VisionGram.xcodeproj"),
-  use_automatic_signing: true,
-  team_id: ENV["TEAM_ID"],
-  code_sign_identity: "Apple Distribution",
-  build_configurations: ["Release"],
-  targets: ["VisionGram"]
-)
+      File.write(PODFILE, contents)
+    else
+      UI.user_error!("Podfile not found at #{PODFILE}")
+    end
 
-# 5) build_ios_app(
-  workspace: Dir[File.join(IOS_DIR, "*.xcworkspace")].first,
-  scheme: ENV["IOS_SCHEME"] || "VisionGram",
-  configuration: "Release",
-  export_method: "app-store",
-  clean: true,
-  xcargs: "-allowProvisioningUpdates",
-  export_options: {
-    provisioningProfiles: {
-      ENV["APP_IDENTIFIER"] => profile_name
-    }
-  }
-)
+    # ---------- Install Pods ----------
+    sh(%Q{bash -lc 'cd "#{IOS_DIR}" && pod repo update'})
+    sh(%Q{bash -lc 'cd "#{IOS_DIR}" && pod install --repo-update'})
 
-upload_to_app_store(
-  api_key: api_key,
-  skip_screenshots: true,
-  skip_metadata: true,
-  reject_if_possible: false,
-  submit_for_review: false
-)
+    # ---------- Signing: set Team + Automatic for Release ----------
+    update_project_team(
+      path: File.join(IOS_DIR, "VisionGram.xcodeproj"),
+      teamid: ENV["TEAM_ID"],
+      targets: ["VisionGram"]
+    )
 
-return  # <- ensure the lane ends successfully after upload
+    update_code_signing_settings(
+      path: File.join(IOS_DIR, "VisionGram.xcodeproj"),
+      use_automatic_signing: true,
+      team_id: ENV["TEAM_ID"],
+      code_sign_identity: "Apple Distribution",
+      build_configurations: ["Release"],
+      targets: ["VisionGram"]
+    )
 
-    # ---- Build (no chdir; point directly at workspace under ios/) ----
+    # ---------- Build with explicit profile mapping ----------
     xcworkspace = Dir[File.join(IOS_DIR, "*.xcworkspace")].first
     UI.user_error!("No .xcworkspace found in ios/") unless xcworkspace
 
     scheme_name = ENV["IOS_SCHEME"] || "VisionGram"
 
- # Point Fastlane at your Xcode project and set Team + Automatic signing
-update_project_team(
-  path: File.join(IOS_DIR, "VisionGram.xcodeproj"),  # <-- was xcodeproj:
-  teamid: ENV["TEAM_ID"],
-  targets: ["VisionGram"]
-)
+    # PROFILE_NAME is set by the workflow import step (from your .mobileprovision)
+    profile_name = ENV["PROFILE_NAME"] || ENV['SIGH_PROFILE_NAME'] || Actions.lane_context[SharedValues::SIGH_PROFILE_NAME]
+    UI.user_error!("PROFILE_NAME env not set. Did the workflow import step run?") if profile_name.nil? || profile_name.empty?
 
     build_ios_app(
-      workspace: xcworkspace,            # e.g. ios/VisionGram.xcworkspace
+      workspace: xcworkspace,
       scheme: scheme_name,
       configuration: "Release",
       export_method: "app-store",
       clean: true,
-      xcargs: "-allowProvisioningUpdates"
+      xcargs: "-allowProvisioningUpdates",
+      export_options: {
+        provisioningProfiles: {
+          ENV["APP_IDENTIFIER"] => profile_name
+        }
+      }
     )
 
     upload_to_app_store(
@@ -177,6 +121,7 @@ update_project_team(
       submit_for_review: false
     )
   ensure
+    # Always try to clean up the CI keychain
     begin
       delete_keychain(name: "ci_keychain")
     rescue => e
