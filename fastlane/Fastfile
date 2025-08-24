@@ -4,7 +4,6 @@ default_platform(:ios)
 platform :ios do
   desc "CI: build and upload to TestFlight"
   lane :ci_beta do
-    require "open3"
     # ---------- Paths ----------
     ROOT    = File.expand_path("..", __dir__)             # repo root (one up from fastlane/)
     IOS_DIR = File.join(ROOT, "ios")
@@ -90,48 +89,14 @@ platform :ios do
       targets: ["VisionGram"]
     )
 
-    # ---------- Resolve provisioning profile name ----------
-    profiles_dir = File.expand_path("~/Library/MobileDevice/Provisioning Profiles")
-    scheme_name  = ENV["IOS_SCHEME"] || "VisionGram"
-
-    # Prefer the workflow-imported value
-    profile_name = ENV["PROFILE_NAME"].to_s.strip
-
-    # If missing, auto-discover an installed App Store profile matching the bundle id
-    if profile_name.empty?
-      UI.message("PROFILE_NAME not set; attempting discovery under #{profiles_dir} …")
-      Dir[File.join(profiles_dir, "*.mobileprovision")].each do |f|
-        plist, _ = Open3.capture2(%Q{/usr/bin/security cms -D -i "#{f}" | plutil -convert xml1 -o - -})
-        next if plist.to_s.strip.empty?
-
-        name,  _ = Open3.capture2(%q{/usr/libexec/PlistBuddy -c "Print :Name" /dev/stdin},  stdin_data: plist)
-        appid, _ = Open3.capture2(%q{/usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" /dev/stdin}, stdin_data: plist)
-        type,  _ = Open3.capture2(%q{/usr/libexec/PlistBuddy -c "Print :ProvisionsAllDevices" /dev/stdin}, stdin_data: plist) rescue ["", nil]
-
-        name  = name.to_s.strip
-        appid = appid.to_s.strip
-
-        # Must target our bundle id (TEAM_ID.bundleid or *.bundleid)
-        matches_bundle = (appid == "#{ENV['TEAM_ID']}.#{ENV['APP_IDENTIFIER']}") || appid.end_with?(".#{ENV['APP_IDENTIFIER']}")
-        # Ensure it's an App Store (not AdHoc/Development); ProvisionsAllDevices is nil/false for App Store
-        is_app_store = (type.to_s.strip.empty? || type.to_s.strip == "false")
-
-        if matches_bundle && is_app_store
-          profile_name = name
-          UI.message("Auto-discovered provisioning profile: #{profile_name}")
-          break
-        end
-      end
-    end
-
-    UI.user_error!(
-      "Could not resolve provisioning profile name. " \
-      "Confirm the import step ran and the profile targets #{ENV['APP_IDENTIFIER']}."
-    ) if profile_name.to_s.strip.empty?
-
-    # ---------- Build & Upload ----------
+    # ---------- Build with explicit profile mapping ----------
     xcworkspace = Dir[File.join(IOS_DIR, "*.xcworkspace")].first
     UI.user_error!("No .xcworkspace found in ios/") unless xcworkspace
+
+    scheme_name = ENV["IOS_SCHEME"] || "VisionGram"
+
+    # Hardcode the App Store provisioning profile name
+    profile_name = "VisionGram App Store Profile"
 
     build_ios_app(
       workspace: xcworkspace,
