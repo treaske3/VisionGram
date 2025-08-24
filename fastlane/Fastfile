@@ -95,23 +95,26 @@ rescue => e
   UI.important("match failed: #{e.class} - #{e.message}")
   UI.important("Falling back to creating signing assets in CI (cert + sigh)…")
 
+  # Use the keychain we created at the top (Fastlane stores as ci_keychain-db)
+  KEYCHAIN_PATH = File.expand_path("~/Library/Keychains/ci_keychain-db")
+
   # 1) Ensure a Distribution certificate exists in the CI keychain
   cert(
     api_key: api_key,
-    keychain_name: "ci_keychain",
+    keychain_path: KEYCHAIN_PATH,   # <— was keychain_name
     keychain_password: pw,
-    development: false,   # Distribution
-    force: false          # set true only if you must create a new cert
+    development: false,             # Distribution
+    force: false
   )
 
   # 2) Create/renew an App Store provisioning profile and install it
   sigh(
     api_key: api_key,
     app_identifier: ENV["APP_IDENTIFIER"],
-    adhoc: false,         # App Store profile (not Ad Hoc)
+    adhoc: false,                   # App Store (not Ad Hoc)
     readonly: false,
-    force: true,          # create if missing/invalid
-    skip_install: false   # install into the CI keychain
+    force: true,                    # create if missing/invalid
+    skip_install: false             # install into the CI keychain
   )
 end
 
@@ -125,13 +128,6 @@ end
 update_project_team(
   path: File.join(IOS_DIR, "VisionGram.xcodeproj"),  # <-- was xcodeproj:
   teamid: ENV["TEAM_ID"],
-  targets: ["VisionGram"]
-)
-
-automatic_code_signing(
-  path: File.join(IOS_DIR, "VisionGram.xcodeproj"),  # add path so action edits the right project
-  use_automatic_signing: true,
-  team_id: ENV["TEAM_ID"],
   targets: ["VisionGram"]
 )
 
