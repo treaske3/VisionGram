@@ -95,9 +95,33 @@ platform :ios do
 
     scheme_name = ENV["IOS_SCHEME"] || "VisionGram"
 
-    # PROFILE_NAME is set by the workflow import step (from your .mobileprovision)
+    # Try to use PROFILE_NAME from the workflow import step; if missing, discover it.
     profile_name = ENV["PROFILE_NAME"].to_s.strip
-    UI.user_error!("PROFILE_NAME env not set. Did the workflow import step run?") if profile_name.empty?
+    if profile_name.empty?
+      UI.message("PROFILE_NAME not set; attempting to discover installed App Store profile…")
+      discovery_script = %Q{bash -lc '
+        APPID="#{ENV["APP_IDENTIFIER"]}"
+        TEAM="#{ENV["TEAM_ID"]}"
+        for f in "$HOME/Library/MobileDevice/Provisioning Profiles"/*.mobileprovision; do
+          PL=$(/usr/bin/security cms -D -i "$f" | plutil -convert xml1 -o - - 2>/dev/null)
+          [ -z "$PL" ] && continue
+          BID=$(echo "$PL" | /usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" /dev/stdin 2>/dev/null || true)
+          NAME=$(echo "$PL" | /usr/libexec/PlistBuddy -c "Print :Name" /dev/stdin 2>/dev/null || true)
+          # Match either TEAM.APPID or *.APPID forms
+          if [ "$BID" = "$TEAM.$APPID" ] || [[ "$BID" = *".$APPID" ]]; then
+            echo "$NAME"; exit 0
+          fi
+        done
+        exit 1
+      '}
+      begin
+        profile_name = sh(discovery_script).to_s.strip
+      rescue
+        profile_name = ""
+      end
+    end
+
+    UI.user_error!("Could not resolve provisioning profile name; ensure the import step ran and the profile targets #{ENV["APP_IDENTIFIER"]}.") if profile_name.empty?
 
     build_ios_app(
       workspace: xcworkspace,
