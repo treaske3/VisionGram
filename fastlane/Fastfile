@@ -76,98 +76,84 @@ platform :ios do
     )
 
     # App Store Connect API key already created above as `api_key`
-begin
-  UI.message("Attempting signing via match…")
-  match(
-    type: "appstore",
-    readonly: false,
-    git_url: ENV["MATCH_GIT_URL"],
-    git_basic_authorization: ENV["MATCH_GIT_BASIC_AUTHORIZATION"],
-    storage_mode: "git",
-    app_identifier: [ENV["APP_IDENTIFIER"]],
-    keychain_name: "ci_keychain",
-    keychain_password: pw,
-    api_key: api_key,
-    verbose: true,
-    git_branch: "main" # remove if your signing repo default is 'master'
-  )
-rescue => e
-  UI.important("match failed: #{e.class} - #{e.message}")
-  UI.important("Falling back to creating signing assets in CI (cert + sigh)…")
+# ----- Fallback: create signing assets directly in CI -----
+KEYCHAIN_PATH = File.expand_path("~/Library/Keychains/ci_keychain-db")
 
-  KEYCHAIN_PATH = File.expand_path("~/Library/Keychains/ci_keychain-db")
+# Normalize env flags that can conflict inside sigh
+ENV["SIGH_READONLY"] = "false"
+ENV["SIGH_FORCE"]    = "true"
 
-  # --- Normalize SIGH env flags so there is no conflict ---
-  ENV["SIGH_READONLY"] = "false"  # ensure not readonly
-  ENV["SIGH_FORCE"]    = "true"   # ensure create/renew allowed
+# 1) Ensure a Distribution certificate exists in the CI keychain
+cert(
+  api_key: api_key,
+  keychain_path: KEYCHAIN_PATH,
+  keychain_password: pw,
+  development: false,   # Distribution
+  force: false          # don't try to create if Apple says you're at the limit
+)
 
-  # 1) Ensure a Distribution certificate exists in the CI keychain
-  cert(
-    api_key: api_key,
-    keychain_path: KEYCHAIN_PATH,
-    keychain_password: pw,
-    development: false,   # Distribution
-    force: false
-  )
+# If Apple says you've reached the max certs, revoke one old “Apple Distribution” cert
+# in the Apple Developer portal and re-run.
 
-  # 2) Create/renew an App Store provisioning profile and install it
-  profile_path = sigh(
-    api_key: api_key,
-    app_identifier: ENV["APP_IDENTIFIER"],
-    adhoc: false,          # App Store (not Ad Hoc)
-    readonly: false,       # <- important
-    force: true,           # <- important
-    skip_install: false,
-    team_id: ENV["TEAM_ID"]
-  )
+# 2) Create/renew an App Store provisioning profile and install it
+profile_path = sigh(
+  api_key: api_key,
+  app_identifier: ENV["APP_IDENTIFIER"],
+  adhoc: false,        # App Store
+  readonly: false,     # <- avoid conflict
+  force: true,         # <- create/renew if needed
+  skip_install: false,
+  team_id: ENV["TEAM_ID"]
+)
 
-  # 3) Use the installed profile name for export options
-  profile_name = ENV['SIGH_PROFILE_NAME'] || Actions.lane_context[SharedValues::SIGH_PROFILE_NAME]
-  UI.message("Using provisioning profile: #{profile_name}")
+# 3) Get profile name for export options
+profile_name = ENV['SIGH_PROFILE_NAME'] || Actions.lane_context[SharedValues::SIGH_PROFILE_NAME]
+UI.message("Using provisioning profile: #{profile_name}")
 
-  # 4) Team + Automatic signing for Release (keep these)
-  update_project_team(
-    path: File.join(IOS_DIR, "VisionGram.xcodeproj"),
-    teamid: ENV["TEAM_ID"],
-    targets: ["VisionGram"]
-  )
-  update_code_signing_settings(
-    path: File.join(IOS_DIR, "VisionGram.xcodeproj"),
-    use_automatic_signing: true,
-    team_id: ENV["TEAM_ID"],
-    code_sign_identity: "Apple Distribution",
-    build_configurations: ["Release"],
-    targets: ["VisionGram"]
-  )
+# 4) Team + Automatic signing for Release
+update_project_team(
+  path: File.join(IOS_DIR, "VisionGram.xcodeproj"),
+  teamid: ENV["TEAM_ID"],
+  targets: ["VisionGram"]
+)
 
-  # 5) Build with explicit profile mapping so Xcode doesn't fetch anything
-  xcworkspace = Dir[File.join(IOS_DIR, "*.xcworkspace")].first
-  UI.user_error!("No .xcworkspace found in ios/") unless xcworkspace
-  scheme_name = ENV["IOS_SCHEME"] || "VisionGram"
+update_code_signing_settings(
+  path: File.join(IOS_DIR, "VisionGram.xcodeproj"),
+  use_automatic_signing: true,
+  team_id: ENV["TEAM_ID"],
+  code_sign_identity: "Apple Distribution",
+  build_configurations: ["Release"],
+  targets: ["VisionGram"]
+)
 
-  build_ios_app(
-    workspace: xcworkspace,
-    scheme: scheme_name,
-    configuration: "Release",
-    export_method: "app-store",
-    clean: true,
-    xcargs: "-allowProvisioningUpdates",
-    export_options: {
-      provisioningProfiles: {
-        ENV["APP_IDENTIFIER"] => profile_name
-      }
+# 5) Build with explicit provisioning profile mapping so Xcode never tries to fetch from an account
+xcworkspace = Dir[File.join(IOS_DIR, "*.xcworkspace")].first
+UI.user_error!("No .xcworkspace found in ios/") unless xcworkspace
+scheme_name = ENV["IOS_SCHEME"] || "VisionGram"
+
+build_ios_app(
+  workspace: xcworkspace,
+  scheme: scheme_name,
+  configuration: "Release",
+  export_method: "app-store",
+  clean: true,
+  xcargs: "-allowProvisioningUpdates",
+  export_options: {
+    provisioningProfiles: {
+      ENV["APP_IDENTIFIER"] => profile_name
     }
-  )
+  }
+)
 
-  upload_to_app_store(
-    api_key: api_key,
-    skip_screenshots: true,
-    skip_metadata: true,
-    reject_if_possible: false,
-    submit_for_review: false
-  )
-  next
-end
+upload_to_app_store(
+  api_key: api_key,
+  skip_screenshots: true,
+  skip_metadata: true,
+  reject_if_possible: false,
+  submit_for_review: false
+)
+
+return  # <- ensure the lane ends successfully after upload
 
     # ---- Build (no chdir; point directly at workspace under ios/) ----
     xcworkspace = Dir[File.join(IOS_DIR, "*.xcworkspace")].first
