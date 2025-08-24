@@ -100,6 +100,18 @@ platform :ios do
 
     scheme_name = ENV["IOS_SCHEME"] || "VisionGram"
 
+   update_project_team(
+      xcodeproj: File.join(IOS_DIR, "VisionGram.xcodeproj"),
+      teamid: ENV["TEAM_ID"],
+      targets: ["VisionGram"]
+    )
+
+    automatic_code_signing(
+      use_automatic_signing: true,
+      team_id: ENV["TEAM_ID"],
+      targets: ["VisionGram"]
+    )
+
     build_ios_app(
       workspace: xcworkspace,            # e.g. ios/VisionGram.xcworkspace
       scheme: scheme_name,
