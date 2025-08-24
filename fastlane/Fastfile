@@ -3,14 +3,20 @@ default_platform(:ios)
 platform :ios do
   desc "CI: build and upload to TestFlight"
   lane :ci_beta do
+    # --- Keychain password (from secret or generated) ---
+    pw = ENV["CI_KEYCHAIN_PW"] || "visiongram_ci_#{Time.now.to_i}_#{rand(1000..9999)}"
+
+    # Create an isolated keychain for the runner
     create_keychain(
       name: "ci_keychain",
+      password: pw,                   # <-- REQUIRED
       default_keychain: true,
       unlock: true,
       timeout: 3600,
       lock_when_sleeps: false
     )
 
+    # App Store Connect API key (no interactive login)
     api_key = app_store_connect_api_key(
       key_id: ENV["ASC_KEY_ID"],
       issuer_id: ENV["ASC_ISSUER_ID"],
@@ -19,7 +25,7 @@ platform :ios do
       in_house: false
     )
 
-    # Try match first; fall back to automatic provisioning
+    # Try to use match for signing (preferred). If it fails, fall back to automatic signing.
     begin
       UI.message("Attempting signing via match…")
       match(
@@ -30,7 +36,7 @@ platform :ios do
         storage_mode: "git",
         app_identifier: [ENV["APP_IDENTIFIER"]],
         keychain_name: "ci_keychain",
-        keychain_password: "",
+        keychain_password: pw,        # <-- MATCH uses the same keychain password
         verbose: true
       )
     rescue => e
@@ -38,13 +44,14 @@ platform :ios do
       UI.important("Continuing with Xcode automatic signing (-allowProvisioningUpdates)…")
     end
 
+    # Locate the workspace directly (no chdir)
     xcworkspace = Dir["ios/*.xcworkspace"].first
     UI.user_error!("No .xcworkspace found in ios/") unless xcworkspace
 
     scheme_name = ENV["IOS_SCHEME"] || "VisionGram"
 
     build_ios_app(
-      workspace: xcworkspace,
+      workspace: xcworkspace,           # e.g. ios/VisionGram.xcworkspace
       scheme: scheme_name,
       configuration: "Release",
       export_method: "app-store",
@@ -60,6 +67,11 @@ platform :ios do
       submit_for_review: false
     )
   ensure
-    delete_keychain(name: "ci_keychain") rescue nil
+    # Always try to clean up
+    begin
+      delete_keychain(name: "ci_keychain")
+    rescue => e
+      UI.important("Keychain cleanup warning: #{e.class} - #{e.message}")
+    end
   end
 end
