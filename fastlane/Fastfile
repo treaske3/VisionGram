@@ -3,7 +3,12 @@ default_platform(:ios)
 platform :ios do
   desc "CI: build and upload to TestFlight"
   lane :ci_beta do
-    # --- Keychain password (from secret or generated) ---
+    # ---- Paths (make everything repo-root absolute) ----
+    ROOT    = File.expand_path("..", __dir__)      # repo root (.. from fastlane/)
+    IOS_DIR = File.join(ROOT, "ios")
+    PODFILE = File.join(IOS_DIR, "Podfile")
+
+    # ---- Keychain password (from secret or generated) ----
     pw = ENV["CI_KEYCHAIN_PW"] || "visiongram_ci_#{Time.now.to_i}_#{rand(1000..9999)}"
 
     create_keychain(
@@ -15,50 +20,53 @@ platform :ios do
       lock_when_sleeps: false
     )
 
-    # Ensure native iOS project exists (fallback guard if workflow missed prebuild)
-    unless Dir.exist?("ios")
-      UI.important("No ios/ folder found — running Expo prebuild fallback…")
-      sh("npx expo prebuild -p ios --no-install --clean")
-      UI.user_error!("Expo prebuild did not create ios/") unless Dir.exist?("ios")
+    # ---- Ensure native iOS project exists (fallback if workflow missed prebuild) ----
+    unless Dir.exist?(IOS_DIR)
+      UI.important("No ios/ folder found — running Expo prebuild fallback from repo root…")
+      sh(%Q{bash -lc 'cd "#{ROOT}" && npx expo prebuild -p ios --no-install --clean'})
+      UI.user_error!("Expo prebuild did not create ios/") unless Dir.exist?(IOS_DIR)
     end
 
-    # Ensure Pods/workspace exist (self-heal & idempotent patch)
-    unless File.exist?("ios/Pods") || Dir["ios/*.xcworkspace"].any?
+    # ---- Ensure Pods / .xcworkspace exist (self-heal & idempotent patch) ----
+    have_workspace = Dir[File.join(IOS_DIR, "*.xcworkspace")].any?
+    unless File.exist?(File.join(IOS_DIR, "Pods")) || have_workspace
       UI.important("No Pods/.xcworkspace — patching Podfile and installing pods…")
-      Dir.chdir("ios") do
-        # Remove unsupported privacy flag (if present)
-        sh(%q{sedi() { sed -i '' "$1" "$2" 2>/dev/null || sed -i "$1" "$2"; }; sedi '/privacy_file_aggregation_enabled/d' Podfile || true})
 
-        # Remove ALL existing React-jsinspector lines (avoid duplicates)
-        sh(%q{sedi() { sed -i '' "$1" "$2" 2>/dev/null || sed -i "$1" "$2"; }; sedi '/React-jsinspector/d' Podfile || true})
-
-        # Ensure use_modular_headers! exists (insert after platform once)
-        patch = <<~'AWK'
-          BEGIN{added=0}
-          /^platform/ && added==0 {print; print ""; print "use_modular_headers!"; added=1; next}
-          {print}
-        AWK
-        unless File.read("Podfile").include?("use_modular_headers!")
-          File.write("Podfile.tmp", IO.popen(%Q{awk '#{patch.gsub("\n","\\n")}' Podfile}, &:read))
-          File.rename("Podfile.tmp", "Podfile")
-        end
-
-        # Choose correct jsinspector path (RN 0.74+: jsinspector-modern)
-        js_modern = "../node_modules/react-native/ReactCommon/jsinspector-modern"
-        js_old    = "../node_modules/react-native/ReactCommon/jsinspector"
-        js_path   = Dir.exist?(js_modern) ? js_modern : js_old
-
-        # Append ONE modular-headers definition
-        File.open("Podfile", "a") do |f|
-          f.puts "  pod 'React-jsinspector', :path => '#{js_path}', :modular_headers => true"
-        end
-
-        sh("pod repo update")
-        sh("pod install --repo-update")
+      # 1) Remove unsupported privacy flag (if present)
+      if File.exist?(PODFILE)
+        contents = File.read(PODFILE)
+        contents = contents.gsub(/.*privacy_file_aggregation_enabled.*\n/, "")
+      else
+        UI.user_error!("Podfile not found at #{PODFILE}")
       end
+
+      # 2) Remove ALL existing React-jsinspector lines (avoid duplicates)
+      contents = contents.gsub(/.*React-jsinspector.*\n/, "")
+
+      # 3) Ensure use_modular_headers! exists (insert once after platform line)
+      unless contents.include?("use_modular_headers!")
+        lines = contents.lines
+        idx = lines.index { |l| l.strip.start_with?("platform ") } || 0
+        lines.insert(idx + 1, "\nuse_modular_headers!\n")
+        contents = lines.join
+      end
+
+      # 4) Choose correct jsinspector path (RN 0.74+: jsinspector-modern)
+      js_modern = "../node_modules/react-native/ReactCommon/jsinspector-modern"
+      js_old    = "../node_modules/react-native/ReactCommon/jsinspector"
+      js_path   = Dir.exist?(File.join(IOS_DIR, js_modern)) ? js_modern : js_old
+
+      # 5) Append ONE modular-headers definition
+      contents << "\n  pod 'React-jsinspector', :path => '#{js_path}', :modular_headers => true\n"
+
+      File.write(PODFILE, contents)
+
+      # Install pods from ios/ directory
+      sh(%Q{bash -lc 'cd "#{IOS_DIR}" && pod repo update'})
+      sh(%Q{bash -lc 'cd "#{IOS_DIR}" && pod install --repo-update'})
     end
 
-    # App Store Connect API key (no interactive login)
+    # ---- App Store Connect API key ----
     api_key = app_store_connect_api_key(
       key_id: ENV["ASC_KEY_ID"],
       issuer_id: ENV["ASC_ISSUER_ID"],
@@ -67,7 +75,7 @@ platform :ios do
       in_house: false
     )
 
-    # Prefer match; fall back to automatic signing if it can't access the repo
+    # ---- Prefer match; fall back to automatic signing if repo access fails ----
     begin
       UI.message("Attempting signing via match…")
       match(
@@ -86,14 +94,14 @@ platform :ios do
       UI.important("Continuing with Xcode automatic signing (-allowProvisioningUpdates)…")
     end
 
-    # Build without changing directories; use workspace under ios/
-    xcworkspace = Dir["ios/*.xcworkspace"].first
+    # ---- Build (no chdir; point directly at workspace under ios/) ----
+    xcworkspace = Dir[File.join(IOS_DIR, "*.xcworkspace")].first
     UI.user_error!("No .xcworkspace found in ios/") unless xcworkspace
 
     scheme_name = ENV["IOS_SCHEME"] || "VisionGram"
 
     build_ios_app(
-      workspace: xcworkspace,
+      workspace: xcworkspace,            # e.g. ios/VisionGram.xcworkspace
       scheme: scheme_name,
       configuration: "Release",
       export_method: "app-store",
