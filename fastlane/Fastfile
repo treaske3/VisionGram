@@ -68,7 +68,9 @@ platform :ios do
     )
 
   ensure
-    # Always delete the keychain to avoid leaving secrets behind
+  begin
     delete_keychain(name: "ci_keychain")
+  rescue => e
+    UI.important("Keychain cleanup skipped: #{e.class} - #{e.message}")
   end
 end
