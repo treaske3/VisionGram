@@ -1,4 +1,4 @@
-name: iOS TestFlight (fixed)
+name: iOS TestFlight (stable)
 
 on:
   workflow_dispatch:
@@ -6,63 +6,94 @@ on:
 jobs:
   build:
     runs-on: macos-14
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Ensure bundler
+      # Ruby tools
+      - name: Install Fastlane & CocoaPods (pinned)
         run: |
-          ruby -v
-          gem install bundler
+          gem install fastlane -N
+          gem install cocoapods -v 1.14.3 -N
+          fastlane --version
+          pod --version
 
-      - name: Set up Node
+      # Node toolchain
+      - name: Set up Node 18
         uses: actions/setup-node@v4
         with:
           node-version: 18
 
-      - name: Install global CLIs
-        run: |
-          npm i -g expo-cli eas-cli
-          brew install cocoapods
-          pod --version
-
-      - name: Install JS deps (root)
+      - name: Install JS deps
         run: npm install
 
-      - name: Prebuild iOS (Expo → native at root)
+      - name: Ensure expo-modules-autolinking is available
+        run: |
+          node -e "try{require('expo-modules-autolinking');process.exit(0)}catch(e){process.exit(1)}" \
+          || npm install --save-dev expo-modules-autolinking
+
+      # Generate native iOS project
+      - name: Expo prebuild iOS
         run: |
           npx expo prebuild -p ios --no-install --clean
-          # guard: ensure ios/ exists
           if [ ! -d "ios" ]; then
-            echo "::error::Expo prebuild did not create ios/; aborting."
+            echo "::error::expo prebuild did not create ios/; aborting."
             exit 1
           fi
 
-           - name: Patch Podfile (remove privacy flag + add modular headers for jsinspector)
+      # Podfile patch (idempotent)
+      - name: Patch Podfile (remove privacy flag + jsinspector modular headers)
         working-directory: ios
+        shell: bash
         run: |
           set -e
-          if [ -f Podfile ]; then
-            # 1) Remove the unsupported privacy flag if present
-            sed -i '' '/privacy_file_aggregation_enabled/d' Podfile || true
+          # 1) Remove unsupported privacy flag (if present)
+          sed -i '' '/privacy_file_aggregation_enabled/d' Podfile || true
+          # 2) Remove ALL existing React-jsinspector lines (avoid duplicates)
+          sed -i '' '/React-jsinspector/d' Podfile || true
+          # 3) Ensure use_modular_headers! exists (insert once after platform line)
+          if ! grep -q "^use_modular_headers!" Podfile; then
+            awk '
+              BEGIN{added=0}
+              /^platform/ && added==0 {print; print ""; print "use_modular_headers!"; added=1; next}
+              {print}
+            ' Podfile > Podfile.tmp && mv Podfile.tmp Podfile
+          fi
+          # 4) Choose correct jsinspector path for RN 0.74+ (fallback to old path)
+          JSI_MODERN="../node_modules/react-native/ReactCommon/jsinspector-modern"
+          JSI_OLD="../node_modules/react-native/ReactCommon/jsinspector"
+          if [ -d "$JSI_MODERN" ]; then
+            JSI_PATH="$JSI_MODERN"
+          else
+            JSI_PATH="$JSI_OLD"
+          fi
+          # 5) Append ONE modular-headers definition for jsinspector
+          echo "  pod 'React-jsinspector', :path => '$JSI_PATH', :modular_headers => true" >> Podfile
 
-            # 2) Make React-jsinspector export a module map so Swift (ExpoModulesCore) can import it
-            if ! grep -q "pod 'React-jsinspector', :modular_headers => true" Podfile; then
-              # Insert a jsinspector pod line right after the use_react_native! call
-              awk '
-                BEGIN{done=0}
-                /use_react_native!\(/ && done==0 {
-                  print; 
-                  print "  pod '\''React-jsinspector'\'', :modular_headers => true";
-                  done=1; next
-                }
-                {print}
-              ' Podfile > Podfile.tmp && mv Podfile.tmp Podfile
-            fi
+      - name: Validate Podfile before pods
+        working-directory: ios
+        run: |
+          echo "---- Podfile (head) ----"
+          sed -n '1,140p' Podfile
+          echo "------------------------"
+          COUNT=$(grep -c "React-jsinspector" Podfile || true)
+          if [ "$COUNT" -ne 1 ]; then
+            echo "::error::React-jsinspector entries in Podfile: $COUNT (expected 1)."
+            exit 1
+          fi
+          if ! grep -q "^use_modular_headers!" Podfile; then
+            echo "::error::use_modular_headers! not found in Podfile."
+            exit 1
           fi
 
+      # CocoaPods
       - name: Install iOS pods
         working-directory: ios
-        run: pod install --repo-update
+        run: |
+          pod repo update
+          pod install --repo-update
+          ls -la
 
       - name: Show iOS dir (debug)
         run: |
@@ -70,10 +101,8 @@ jobs:
           echo "Workspace(s):"
           ls -la ios/*.xcworkspace || true
 
-      - name: Bundle install (fastlane at root)
-        run: bundle install --path vendor/bundle
-
-      - name: Fastlane (CI beta to TestFlight)
+      # Fastlane build & upload
+      - name: Fastlane (build & upload to TestFlight)
         env:
           APP_IDENTIFIER: ${{ secrets.APP_IDENTIFIER }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -85,4 +114,4 @@ jobs:
           MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           IOS_SCHEME: ${{ vars.IOS_SCHEME }}
-        run: bundle exec fastlane ios ci_beta
+        run: fastlane ios ci_beta
