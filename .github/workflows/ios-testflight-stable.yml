@@ -42,48 +42,48 @@ jobs:
         run: |
           set -euo pipefail
           KEYCHAIN="$HOME/Library/Keychains/ci_keychain-db"
-
-       # Import .p12 (certificate + private key)
-         echo "$DIST_P12_BASE64" | base64 -d > dist.p12
+      
+          # Import .p12 (certificate + private key)
+          echo "$DIST_P12_BASE64" | base64 -d > dist.p12
           security import dist.p12 -k "$KEYCHAIN" -P "$DIST_P12_PASSWORD" \
-          -T /usr/bin/codesign -T /usr/bin/security -T /usr/bin/productbuild -T /usr/bin/productsign
+            -T /usr/bin/codesign -T /usr/bin/security -T /usr/bin/productbuild -T /usr/bin/productsign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$CI_KEYCHAIN_PW" "$KEYCHAIN"
-
-    # Install provisioning profile
-        echo "$DIST_PROFILE_BASE64" | base64 -d > dist.mobileprovision
-        PROFILE_XML=$(/usr/bin/security cms -D -i dist.mobileprovision | plutil -convert xml1 -o - -)
-        PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<< "$PROFILE_XML")
-        PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<< "$PROFILE_XML" | tr -d '\r')
-
-        mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-        cp dist.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
-
-    # Persist to next steps (this is the critical line)
-    printf 'PROFILE_NAME=%s\n' "$PROFILE_NAME" >> "$GITHUB_ENV"
-
-      - name: Show discovered profile name
-        run: echo "PROFILE_NAME=$PROFILE_NAME"
-
-      - name: Show discovered profile name
-        run: echo "PROFILE_NAME=$PROFILE_NAME"
+      
+          # Install provisioning profile and expose its Name to subsequent steps
+          echo "$DIST_PROFILE_BASE64" | base64 -d > dist.mobileprovision
+          PROFILE_XML=$(/usr/bin/security cms -D -i dist.mobileprovision | plutil -convert xml1 -o - -)
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<< "$PROFILE_XML")
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<< "$PROFILE_XML" | tr -d '\r')
+      
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp dist.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+      
+          # Persist to next steps (critical)
+          printf 'PROFILE_NAME=%s\n' "$PROFILE_NAME" >> "$GITHUB_ENV"
 
       # Build & upload with Fastlane (uses Fastfile lane :ci_beta)
-      
-      - name: Fastlane (build & upload to TestFlight)
-        env:
-          # App / team / scheme
-          APP_IDENTIFIER: ${{ secrets.APP_IDENTIFIER }}     # e.g. com.visiongram.app
-          TEAM_ID:        ${{ secrets.TEAM_ID }}            # your 10-char Apple team id
-          IOS_SCHEME:     ${{ vars.IOS_SCHEME }}            # optional; default is VisionGram
 
-          # App Store Connect API key (used by Fastfile)
-          ASC_KEY_ID:       ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID:    ${{ secrets.ASC_ISSUER_ID }}
-          ASC_API_KEY_P8:   ${{ secrets.ASC_API_KEY_P8 }}
+        - name: Show discovered profile name
+          run: echo "PROFILE_NAME=$PROFILE_NAME"
 
-          # CI keychain password (same one you set as a secret)
-          CI_KEYCHAIN_PW: ${{ secrets.CI_KEYCHAIN_PW }}
-
-          # Optional (if your Appfile references it)
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-        run: fastlane ios ci_beta
+        - name: Fastlane (build & upload to TestFlight)
+          env:
+            # App / team / scheme
+            APP_IDENTIFIER: ${{ secrets.APP_IDENTIFIER }}   # e.g. com.visiongram.app
+            TEAM_ID:        ${{ secrets.TEAM_ID }}          # 10-char team id
+            IOS_SCHEME:     ${{ vars.IOS_SCHEME }}          # optional; defaults to VisionGram if unset
+        
+            # App Store Connect API key
+            ASC_KEY_ID:     ${{ secrets.ASC_KEY_ID }}
+            ASC_ISSUER_ID:  ${{ secrets.ASC_ISSUER_ID }}
+            ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+        
+            # CI keychain password
+            CI_KEYCHAIN_PW: ${{ secrets.CI_KEYCHAIN_PW }}
+        
+            # 🔽 this passes the imported profile’s name into Fastlane
+            PROFILE_NAME:   ${{ env.PROFILE_NAME }}
+        
+            # Optional (if referenced in Appfile)
+            APPLE_ID:       ${{ secrets.APPLE_ID }}
+          run: fastlane ios ci_beta
