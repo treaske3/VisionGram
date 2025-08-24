@@ -79,17 +79,18 @@ platform :ios do
 begin
   UI.message("Attempting signing via match…")
   match(
-    type: "appstore",
-    readonly: false,
-    git_url: ENV["MATCH_GIT_URL"],
-    git_basic_authorization: ENV["MATCH_GIT_BASIC_AUTHORIZATION"],
-    storage_mode: "git",
-    app_identifier: [ENV["APP_IDENTIFIER"]],
-    keychain_name: "ci_keychain",
-    keychain_password: pw,
-    api_key: api_key,            # <— add this line
-    verbose: true
-  )
+  type: "appstore",
+  readonly: false,
+  git_url: ENV["MATCH_GIT_URL"],
+  git_basic_authorization: ENV["MATCH_GIT_BASIC_AUTHORIZATION"],
+  storage_mode: "git",
+  app_identifier: [ENV["APP_IDENTIFIER"]],
+  keychain_name: "ci_keychain",
+  keychain_password: pw,
+  api_key: api_key,      # <-- ensure this is here
+  verbose: true,
+  git_branch: "main"     # <-- add if your signing repo uses main
+)
 rescue => e
   UI.important("match failed or unavailable: #{e.class} - #{e.message}")
   UI.important("Continuing with Xcode automatic signing (-allowProvisioningUpdates)…")
