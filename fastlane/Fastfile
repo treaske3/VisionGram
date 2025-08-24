@@ -9,7 +9,7 @@ platform :ios do
     IOS_DIR = File.join(ROOT, "ios")
     PODFILE = File.join(IOS_DIR, "Podfile")
 
-    # ---------- Keychain (for CI) ----------
+    # ---------- Keychain for CI ----------
     pw = ENV["CI_KEYCHAIN_PW"] || "visiongram_ci_#{Time.now.to_i}_#{rand(1000..9999)}"
     create_keychain(
       name: "ci_keychain",
@@ -95,7 +95,7 @@ platform :ios do
 
     scheme_name = ENV["IOS_SCHEME"] || "VisionGram"
 
-    # PROFILE_NAME must be set by the workflow import step (from your .mobileprovision)
+    # PROFILE_NAME must be set by the workflow import step (Step 1)
     profile_name = ENV["PROFILE_NAME"].to_s.strip
     UI.user_error!(
       "PROFILE_NAME env not set. Confirm the import step ran BEFORE Fastlane " \
