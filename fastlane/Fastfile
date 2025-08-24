@@ -97,42 +97,40 @@ rescue => e
 
   KEYCHAIN_PATH = File.expand_path("~/Library/Keychains/ci_keychain-db")
 
-  # Clear env toggles that can conflict
-  ENV.delete("SIGH_READONLY")
-  ENV.delete("SIGH_FORCE")
+  # --- Normalize SIGH env flags so there is no conflict ---
+  ENV["SIGH_READONLY"] = "false"  # ensure not readonly
+  ENV["SIGH_FORCE"]    = "true"   # ensure create/renew allowed
 
   # 1) Ensure a Distribution certificate exists in the CI keychain
   cert(
     api_key: api_key,
     keychain_path: KEYCHAIN_PATH,
     keychain_password: pw,
-    development: false,    # Distribution
+    development: false,   # Distribution
     force: false
   )
 
   # 2) Create/renew an App Store provisioning profile and install it
-  #    Explicitly set readonly: false to avoid the conflict
   profile_path = sigh(
     api_key: api_key,
     app_identifier: ENV["APP_IDENTIFIER"],
     adhoc: false,          # App Store (not Ad Hoc)
-    readonly: false,       # <-- important
-    force: true,           # create if missing/invalid
-    skip_install: false,   # install into CI keychain
+    readonly: false,       # <- important
+    force: true,           # <- important
+    skip_install: false,
     team_id: ENV["TEAM_ID"]
   )
 
-  # 3) Capture the installed profile's name for export options
+  # 3) Use the installed profile name for export options
   profile_name = ENV['SIGH_PROFILE_NAME'] || Actions.lane_context[SharedValues::SIGH_PROFILE_NAME]
   UI.message("Using provisioning profile: #{profile_name}")
 
-  # 4) Continue with team + automatic signing for Release
+  # 4) Team + Automatic signing for Release (keep these)
   update_project_team(
     path: File.join(IOS_DIR, "VisionGram.xcodeproj"),
     teamid: ENV["TEAM_ID"],
     targets: ["VisionGram"]
   )
-
   update_code_signing_settings(
     path: File.join(IOS_DIR, "VisionGram.xcodeproj"),
     use_automatic_signing: true,
@@ -142,7 +140,7 @@ rescue => e
     targets: ["VisionGram"]
   )
 
-  # 5) Build using the specific profile so Xcode doesn't try to fetch
+  # 5) Build with explicit profile mapping so Xcode doesn't fetch anything
   xcworkspace = Dir[File.join(IOS_DIR, "*.xcworkspace")].first
   UI.user_error!("No .xcworkspace found in ios/") unless xcworkspace
   scheme_name = ENV["IOS_SCHEME"] || "VisionGram"
@@ -168,7 +166,7 @@ rescue => e
     reject_if_possible: false,
     submit_for_review: false
   )
-  next # lane done
+  next
 end
 
     # ---- Build (no chdir; point directly at workspace under ios/) ----
