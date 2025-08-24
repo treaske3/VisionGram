@@ -106,18 +106,15 @@ profile_path = sigh(
   team_id: ENV["TEAM_ID"]
 )
 
-# 3) Get profile name for export options
-profile_name = ENV['SIGH_PROFILE_NAME'] || Actions.lane_context[SharedValues::SIGH_PROFILE_NAME]
-UI.message("Using provisioning profile: #{profile_name}")
+profile_name = ENV["PROFILE_NAME"] || ENV['SIGH_PROFILE_NAME'] || Actions.lane_context[SharedValues::SIGH_PROFILE_NAME]
 
-# 4) Team + Automatic signing for Release
-update_project_team(
+# 3) update_project_team(
   path: File.join(IOS_DIR, "VisionGram.xcodeproj"),
   teamid: ENV["TEAM_ID"],
   targets: ["VisionGram"]
 )
 
-update_code_signing_settings(
+# 4) update_code_signing_settings(
   path: File.join(IOS_DIR, "VisionGram.xcodeproj"),
   use_automatic_signing: true,
   team_id: ENV["TEAM_ID"],
@@ -126,14 +123,9 @@ update_code_signing_settings(
   targets: ["VisionGram"]
 )
 
-# 5) Build with explicit provisioning profile mapping so Xcode never tries to fetch from an account
-xcworkspace = Dir[File.join(IOS_DIR, "*.xcworkspace")].first
-UI.user_error!("No .xcworkspace found in ios/") unless xcworkspace
-scheme_name = ENV["IOS_SCHEME"] || "VisionGram"
-
-build_ios_app(
-  workspace: xcworkspace,
-  scheme: scheme_name,
+# 5) build_ios_app(
+  workspace: Dir[File.join(IOS_DIR, "*.xcworkspace")].first,
+  scheme: ENV["IOS_SCHEME"] || "VisionGram",
   configuration: "Release",
   export_method: "app-store",
   clean: true,
