@@ -75,25 +75,44 @@ platform :ios do
       in_house: false
     )
 
-    # After api_key = app_store_connect_api_key(...)
+    # App Store Connect API key already created above as `api_key`
 begin
   UI.message("Attempting signing via match…")
   match(
-  type: "appstore",
-  readonly: false,
-  git_url: ENV["MATCH_GIT_URL"],
-  git_basic_authorization: ENV["MATCH_GIT_BASIC_AUTHORIZATION"],
-  storage_mode: "git",
-  app_identifier: [ENV["APP_IDENTIFIER"]],
-  keychain_name: "ci_keychain",
-  keychain_password: pw,
-  api_key: api_key,      # <-- ensure this is here
-  verbose: true,
-  git_branch: "main"     # <-- add if your signing repo uses main
-)
+    type: "appstore",
+    readonly: false,
+    git_url: ENV["MATCH_GIT_URL"],
+    git_basic_authorization: ENV["MATCH_GIT_BASIC_AUTHORIZATION"],
+    storage_mode: "git",
+    app_identifier: [ENV["APP_IDENTIFIER"]],
+    keychain_name: "ci_keychain",
+    keychain_password: pw,
+    api_key: api_key,
+    verbose: true,
+    git_branch: "main" # remove if your signing repo default is 'master'
+  )
 rescue => e
-  UI.important("match failed or unavailable: #{e.class} - #{e.message}")
-  UI.important("Continuing with Xcode automatic signing (-allowProvisioningUpdates)…")
+  UI.important("match failed: #{e.class} - #{e.message}")
+  UI.important("Falling back to creating signing assets in CI (cert + sigh)…")
+
+  # 1) Ensure a Distribution certificate exists in the CI keychain
+  cert(
+    api_key: api_key,
+    keychain_name: "ci_keychain",
+    keychain_password: pw,
+    development: false,   # Distribution
+    force: false          # set true only if you must create a new cert
+  )
+
+  # 2) Create/renew an App Store provisioning profile and install it
+  sigh(
+    api_key: api_key,
+    app_identifier: ENV["APP_IDENTIFIER"],
+    adhoc: false,         # App Store profile (not Ad Hoc)
+    readonly: false,
+    force: true,          # create if missing/invalid
+    skip_install: false   # install into the CI keychain
+  )
 end
 
     # ---- Build (no chdir; point directly at workspace under ios/) ----
