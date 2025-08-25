@@ -25,13 +25,13 @@ jobs:
           fastlane --version
           pod --version
 
-      # Node for Expo prebuild fallback in Fastfile
+      # Node for any RN/Expo scripts
       - name: Set up Node 18
         uses: actions/setup-node@v4
         with:
           node-version: 18
 
-      # Import distribution cert (.p12) and App Store profile (.mobileprovision)
+      # Import distribution .p12 and App Store .mobileprovision
       - name: Import distribution cert & profile into CI keychain
         shell: bash
         env:
@@ -63,16 +63,16 @@ jobs:
           echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
           echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
 
-      # (Optional) quick visibility
       - name: Show discovered profile name
         run: echo "PROFILE_NAME=$PROFILE_NAME / UUID=$PROFILE_UUID"
-- name: Show Xcode Release build settings (preflight)
-  run: |
-    xcodebuild -showBuildSettings \
-      -workspace ios/VisionGram.xcworkspace \
-      -scheme VisionGram \
-      -configuration Release 2>/dev/null | \
-      egrep 'PRODUCT_BUNDLE_IDENTIFIER|DEVELOPMENT_TEAM|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE_SPECIFIER' || true
+
+      - name: Show Xcode Release build settings (preflight)
+        run: |
+          xcodebuild -showBuildSettings \
+            -workspace ios/VisionGram.xcworkspace \
+            -scheme VisionGram \
+            -configuration Release 2>/dev/null | \
+            egrep 'PRODUCT_BUNDLE_IDENTIFIER|DEVELOPMENT_TEAM|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE_SPECIFIER' || true
 
       # Build & upload with Fastlane
       - name: Fastlane (build & upload to TestFlight)
@@ -94,12 +94,7 @@ jobs:
           PROFILE_NAME:   ${{ env.PROFILE_NAME }}
           PROFILE_UUID:   ${{ env.PROFILE_UUID }}
         run: fastlane ios ci_beta
-        
-- name: Show gym log tail (debug)
-  if: always()
-  run: tail -n 300 ~/Library/Logs/gym/VisionGram-VisionGram.log || true
 
-      # (Optional) if you want more error context:
-      # - name: Show gym log tail (debug)
-      #   if: always()
-      #   run: tail -n 300 ~/Library/Logs/gym/VisionGram-VisionGram.log || true
+      - name: Show gym log tail (debug)
+        if: always()
+        run: tail -n 300 ~/Library/Logs/gym/VisionGram-VisionGram.log || true
