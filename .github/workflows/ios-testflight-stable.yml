@@ -94,6 +94,10 @@ jobs:
           PROFILE_NAME:   ${{ env.PROFILE_NAME }}
           PROFILE_UUID:   ${{ env.PROFILE_UUID }}
         run: fastlane ios ci_beta
+        
+- name: Show gym log tail (debug)
+  if: always()
+  run: tail -n 300 ~/Library/Logs/gym/VisionGram-VisionGram.log || true
 
       # (Optional) if you want more error context:
       # - name: Show gym log tail (debug)
