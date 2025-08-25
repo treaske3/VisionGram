@@ -66,6 +66,13 @@ jobs:
       # (Optional) quick visibility
       - name: Show discovered profile name
         run: echo "PROFILE_NAME=$PROFILE_NAME / UUID=$PROFILE_UUID"
+- name: Show Xcode Release build settings (preflight)
+  run: |
+    xcodebuild -showBuildSettings \
+      -workspace ios/VisionGram.xcworkspace \
+      -scheme VisionGram \
+      -configuration Release 2>/dev/null | \
+      egrep 'PRODUCT_BUNDLE_IDENTIFIER|DEVELOPMENT_TEAM|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE_SPECIFIER' || true
 
       # Build & upload with Fastlane
       - name: Fastlane (build & upload to TestFlight)
