@@ -82,10 +82,10 @@ platform :ios do
 
     update_code_signing_settings(
   path:                  File.join(IOS_DIR, "VisionGram.xcodeproj"),
-  use_automatic_signing: false,                      # MANUAL for Release
+  use_automatic_signing: false,               # MANUAL for Release
   team_id:               ENV.fetch("TEAM_ID"),
   targets:               ["VisionGram"],
-  build_configurations:  ["Release"],                # <-- plural
+  build_configurations:  ["Release"],         # <-- plural
   code_sign_identity:    "Apple Distribution",
   profile_name:          "VisionGram App Store Profile",
   bundle_identifier:     ENV.fetch("APP_IDENTIFIER")
