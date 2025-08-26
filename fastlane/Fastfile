@@ -73,7 +73,7 @@ platform :ios do
     sh(%Q{bash -lc 'cd "#{IOS_DIR}" && pod repo update'})
     sh(%Q{bash -lc 'cd "#{IOS_DIR}" && pod install --repo-update'})
 
-    # ---------- Manual signing for Release (resolve conflicts) ----------
+    # ---------- Manual signing for Release (resolve conflicts on app target only) ----------
     update_project_team(
       path:    File.join(IOS_DIR, "VisionGram.xcodeproj"),
       teamid:  ENV.fetch("TEAM_ID"),
@@ -82,9 +82,9 @@ platform :ios do
 
     update_code_signing_settings(
       path:                  File.join(IOS_DIR, "VisionGram.xcodeproj"),
-      use_automatic_signing: false,                # MANUAL for Release
+      use_automatic_signing: false,                # MANUAL for Release (app target)
       team_id:               ENV.fetch("TEAM_ID"),
-      targets:               ["VisionGram"],
+      targets:               ["VisionGram"],       # only the app target, not Pods
       build_configurations:  ["Release"],          # plural
       code_sign_identity:    "Apple Distribution",
       profile_name:          (ENV["PROFILE_NAME"] || "VisionGram App Store Profile"),
@@ -107,10 +107,10 @@ platform :ios do
       export_method:  "app-store",
       clean:          true,
 
-      # Single-line ASCII to avoid smart-quote issues
-      xcargs: "CODE_SIGN_STYLE=Manual CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY='Apple Distribution' DEVELOPMENT_TEAM=#{ENV.fetch('TEAM_ID')} PRODUCT_BUNDLE_IDENTIFIER=#{ENV.fetch('APP_IDENTIFIER')} PROVISIONING_PROFILE_SPECIFIER='#{ENV['PROFILE_NAME'] || 'VisionGram App Store Profile'}' NODE_BINARY=#{node_bin}",
+      # Keep global overrides minimal so Pods aren’t forced to sign with your profile
+      xcargs: "CODE_SIGN_STYLE=Manual CODE_SIGNING_ALLOWED=YES NODE_BINARY=#{node_bin}",
 
-      # ASCII-safe export options
+      # Export uses the correct profile for the app bundle id
       export_options: {
         "signingStyle" => "manual",
         "teamID" => ENV.fetch("TEAM_ID"),
