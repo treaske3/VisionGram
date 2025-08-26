@@ -85,7 +85,7 @@ platform :ios do
       use_automatic_signing: false,                # MANUAL for Release
       team_id:               ENV.fetch("TEAM_ID"),
       targets:               ["VisionGram"],
-      build_configurations:  ["Release"],          # <-- plural
+      build_configurations:  ["Release"],          # plural
       code_sign_identity:    "Apple Distribution",
       profile_name:          (ENV["PROFILE_NAME"] || "VisionGram App Store Profile"),
       profile_uuid:          ENV["PROFILE_UUID"],
@@ -107,7 +107,7 @@ platform :ios do
       export_method:  "app-store",
       clean:          true,
 
-      # Single-line ASCII string to avoid smart-quote issues
+      # Single-line ASCII to avoid smart-quote issues
       xcargs: "CODE_SIGN_STYLE=Manual CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY='Apple Distribution' DEVELOPMENT_TEAM=#{ENV.fetch('TEAM_ID')} PRODUCT_BUNDLE_IDENTIFIER=#{ENV.fetch('APP_IDENTIFIER')} PROVISIONING_PROFILE_SPECIFIER='#{ENV['PROFILE_NAME'] || 'VisionGram App Store Profile'}' NODE_BINARY=#{node_bin}",
 
       # ASCII-safe export options
