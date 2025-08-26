@@ -97,4 +97,4 @@ jobs:
 
       - name: Show gym log tail (debug)
         if: always()
-        run: tail -n 300 ~/Library/Logs/gym/VisionGram-VisionGram.log || true
+        run: tail -n 500 ~/Library/Logs/gym/VisionGram-VisionGram.log || true
