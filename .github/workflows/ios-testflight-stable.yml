@@ -25,7 +25,7 @@ jobs:
           fastlane --version
           pod --version
 
-      # Node for any RN/Expo scripts
+      # Node for RN/Expo bundling
       - name: Set up Node 18
         uses: actions/setup-node@v4
         with:
@@ -54,8 +54,13 @@ jobs:
           PROFILE_XML=$(/usr/bin/security cms -D -i dist.mobileprovision | plutil -convert xml1 -o - -)
           PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<< "$PROFILE_XML")
           PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<< "$PROFILE_XML" | tr -d '\r')
+          APP_ID=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' /dev/stdin <<< "$PROFILE_XML" | tr -d '\r')
 
-          # Install profile where Xcode expects it
+          # Basic sanity check (does profile target TEAM_ID.APP_IDENTIFIER or wildcard?)
+          echo "Profile Name: $PROFILE_NAME"
+          echo "Profile UUID: $PROFILE_UUID"
+          echo "Profile AppID: $APP_ID"
+
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
           cp dist.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/${PROFILE_UUID}.mobileprovision"
 
