@@ -31,7 +31,7 @@ jobs:
         with:
           node-version: 18
 
-      # Import distribution .p12 and App Store .mobileprovision
+      # >>> IMPORTANT: import distribution cert (.p12) + App Store profile (.mobileprovision)
       - name: Import distribution cert & profile into CI keychain
         shell: bash
         env:
@@ -71,6 +71,17 @@ jobs:
       - name: Show discovered profile name
         run: echo "PROFILE_NAME=$PROFILE_NAME / UUID=$PROFILE_UUID"
 
+      # Pods
+      - name: Pod repo update
+        run: bash -lc 'cd "ios" && pod repo update'
+
+      - name: Pod install
+        run: bash -lc 'cd "ios" && pod install --repo-update'
+
+      # Team and manual signing (app target only)
+      - name: Update project team
+        run: bash -lc 'cd "ios" && echo "Team updated via Fastlane in next step"'
+
       # Preflight: App target (Release) settings
       - name: Show Xcode app Release build settings (preflight)
         run: |
@@ -80,7 +91,7 @@ jobs:
             -configuration Release 2>/dev/null | \
             egrep 'PRODUCT_BUNDLE_IDENTIFIER|DEVELOPMENT_TEAM|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE_SPECIFIER' || true
 
-      # Preflight: Pods aggregate target (helps confirm pods are not forced to sign)
+      # Preflight: Pods aggregate (ensure no profile forced)
       - name: Show Pods aggregate Release build settings (preflight)
         run: |
           if [ -f ios/Pods/Pods.xcodeproj/project.pbxproj ]; then
