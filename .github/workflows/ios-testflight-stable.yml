@@ -52,7 +52,7 @@ jobs:
           # Decode + parse the provisioning profile
           echo "$DIST_PROFILE_BASE64" | base64 -d > dist.mobileprovision
           PROFILE_XML=$(/usr/bin/security cms -D -i dist.mobileprovision | plutil -convert xml1 -o - -)
-          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<< "$PROFILE_XML")
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<< "$PROFILE_XML" | tr -d '\r')
           PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<< "$PROFILE_XML" | tr -d '\r')
           APP_ID=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' /dev/stdin <<< "$PROFILE_XML" | tr -d '\r')
 
