@@ -80,6 +80,7 @@ platform :ios do
       targets: ["VisionGram"]
     )
 
+    # IMPORTANT: set ONLY UUID (not name) to avoid "no profile matching 'Name'" issues
     update_code_signing_settings(
       path:                  File.join(IOS_DIR, "VisionGram.xcodeproj"),
       use_automatic_signing: false,                # MANUAL for Release (app target)
@@ -87,8 +88,7 @@ platform :ios do
       targets:               ["VisionGram"],       # only the app target, not Pods
       build_configurations:  ["Release"],          # plural
       code_sign_identity:    "Apple Distribution",
-      profile_name:          (ENV["PROFILE_NAME"] || "VisionGram App Store Profile"),
-      profile_uuid:          ENV["PROFILE_UUID"],
+      profile_uuid:          ENV.fetch("PROFILE_UUID"),
       bundle_identifier:     ENV.fetch("APP_IDENTIFIER")
     )
 
@@ -110,12 +110,12 @@ platform :ios do
       # Minimal global args so we don't spill signing onto Pods
       xcargs: "NODE_BINARY=#{node_bin}",
 
-      # Export maps the app bundle id to your profile name (ipa packaging)
+      # Export maps the app bundle id to the PROFILE_UUID (not name)
       export_options: {
         "signingStyle" => "manual",
         "teamID" => ENV.fetch("TEAM_ID"),
         "provisioningProfiles" => {
-          ENV.fetch("APP_IDENTIFIER") => (ENV["PROFILE_NAME"] || "VisionGram App Store Profile")
+          ENV.fetch("APP_IDENTIFIER") => ENV.fetch("PROFILE_UUID")
         }
       }
     )
