@@ -56,11 +56,11 @@ jobs:
           PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<< "$PROFILE_XML" | tr -d '\r')
           APP_ID=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' /dev/stdin <<< "$PROFILE_XML" | tr -d '\r')
 
-          # Basic sanity check (does profile target TEAM_ID.APP_IDENTIFIER or wildcard?)
           echo "Profile Name: $PROFILE_NAME"
           echo "Profile UUID: $PROFILE_UUID"
           echo "Profile AppID: $APP_ID"
 
+          # Install profile where Xcode expects it
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
           cp dist.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/${PROFILE_UUID}.mobileprovision"
 
@@ -71,13 +71,25 @@ jobs:
       - name: Show discovered profile name
         run: echo "PROFILE_NAME=$PROFILE_NAME / UUID=$PROFILE_UUID"
 
-      - name: Show Xcode Release build settings (preflight)
+      # Preflight: App target (Release) settings
+      - name: Show Xcode app Release build settings (preflight)
         run: |
           xcodebuild -showBuildSettings \
             -workspace ios/VisionGram.xcworkspace \
             -scheme VisionGram \
             -configuration Release 2>/dev/null | \
             egrep 'PRODUCT_BUNDLE_IDENTIFIER|DEVELOPMENT_TEAM|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE_SPECIFIER' || true
+
+      # Preflight: Pods aggregate target (helps confirm pods are not forced to sign)
+      - name: Show Pods aggregate Release build settings (preflight)
+        run: |
+          if [ -f ios/Pods/Pods.xcodeproj/project.pbxproj ]; then
+            xcodebuild -showBuildSettings \
+              -project ios/Pods/Pods.xcodeproj \
+              -scheme "Pods-VisionGram" \
+              -configuration Release 2>/dev/null | \
+              egrep 'CODE_SIGN_STYLE|PROVISIONING_PROFILE_SPECIFIER|DEVELOPMENT_TEAM' || true
+          fi
 
       # Build & upload with Fastlane
       - name: Fastlane (build & upload to TestFlight)
@@ -103,3 +115,10 @@ jobs:
       - name: Show gym log tail (debug)
         if: always()
         run: tail -n 500 ~/Library/Logs/gym/VisionGram-VisionGram.log || true
+
+      - name: Upload gym logs (artifact)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gym-logs
+          path: ~/Library/Logs/gym/
