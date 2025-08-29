@@ -110,7 +110,7 @@ platform :ios do
       # Minimal global args so we don't spill signing onto Pods
       xcargs: "NODE_BINARY=#{node_bin}",
 
-      # Export maps the app bundle id to your profile name (affects ipa packaging)
+      # Export maps the app bundle id to your profile name (ipa packaging)
       export_options: {
         "signingStyle" => "manual",
         "teamID" => ENV.fetch("TEAM_ID"),
