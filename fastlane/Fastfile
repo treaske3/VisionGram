@@ -80,17 +80,27 @@ platform :ios do
       targets: ["VisionGram"]
     )
 
-    # IMPORTANT: set ONLY UUID (not name) to avoid "no profile matching 'Name'" issues
-    update_code_signing_settings(
+    # Use UUID if provided; otherwise fall back to Name
+    profile_uuid = ENV["PROFILE_UUID"].to_s.strip
+    profile_name = ENV["PROFILE_NAME"].to_s.strip
+    UI.message("Using profile UUID: #{profile_uuid}") unless profile_uuid.empty?
+    UI.message("Using profile NAME: #{profile_name}") if profile_uuid.empty? && !profile_name.empty?
+
+    signing_opts = {
       path:                  File.join(IOS_DIR, "VisionGram.xcodeproj"),
       use_automatic_signing: false,                # MANUAL for Release (app target)
       team_id:               ENV.fetch("TEAM_ID"),
-      targets:               ["VisionGram"],       # only the app target, not Pods
-      build_configurations:  ["Release"],          # plural
+      targets:               ["VisionGram"],
+      build_configurations:  ["Release"],
       code_sign_identity:    "Apple Distribution",
-      profile_uuid:          ENV.fetch("PROFILE_UUID"),
       bundle_identifier:     ENV.fetch("APP_IDENTIFIER")
-    )
+    }
+    if !profile_uuid.empty?
+      signing_opts[:profile_uuid] = profile_uuid
+    elsif !profile_name.empty?
+      signing_opts[:profile_name] = profile_name
+    end
+    update_code_signing_settings(**signing_opts)
 
     # ---------- Build ----------
     xcworkspace = Dir[File.join(IOS_DIR, "*.xcworkspace")].first || UI.user_error!("No .xcworkspace found in ios/")
@@ -99,6 +109,15 @@ platform :ios do
     # Ensure RN script can find node (fixes Exit 127 if bundling step runs)
     node_bin = sh("which node").to_s.strip
     node_bin = "/usr/local/bin/node" if node_bin.empty?
+
+    export_profiles_value =
+      if !profile_uuid.empty?
+        { ENV.fetch("APP_IDENTIFIER") => profile_uuid }
+      elsif !profile_name.empty?
+        { ENV.fetch("APP_IDENTIFIER") => profile_name }
+      else
+        {}
+      end
 
     build_ios_app(
       workspace:      xcworkspace,
@@ -110,13 +129,11 @@ platform :ios do
       # Minimal global args so we don't spill signing onto Pods
       xcargs: "NODE_BINARY=#{node_bin}",
 
-      # Export maps the app bundle id to the PROFILE_UUID (not name)
+      # Export maps the app bundle id to your profile UUID (preferred) or Name (fallback)
       export_options: {
         "signingStyle" => "manual",
         "teamID" => ENV.fetch("TEAM_ID"),
-        "provisioningProfiles" => {
-          ENV.fetch("APP_IDENTIFIER") => ENV.fetch("PROFILE_UUID")
-        }
+        "provisioningProfiles" => export_profiles_value
       }
     )
 
