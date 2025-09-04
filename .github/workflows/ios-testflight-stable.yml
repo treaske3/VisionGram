@@ -16,6 +16,25 @@ jobs:
         with:
           ruby-version: '3.2'
           bundler-cache: false
+          
+      - name: Install provisioning profile from repo
+        run: |
+          set -euo pipefail
+          PROFILE_FILE="ios/profiles/VisionGram_AppStore_Push.mobileprovision"
+          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILE_DIR"
+      
+          PROFILE_PLIST=$(/usr/bin/security cms -D -i "$PROFILE_FILE" | plutil -convert xml1 -o - -)
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<< "$PROFILE_PLIST" | tr -d '\r')
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<< "$PROFILE_PLIST" | tr -d '\r')
+      
+          echo "Profile Name: $PROFILE_NAME"
+          echo "Profile UUID: $PROFILE_UUID"
+      
+          cp "$PROFILE_FILE" "$PROFILE_DIR/${PROFILE_UUID}.mobileprovision"
+      
+          echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
+          echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
 
       - name: Install Fastlane & CocoaPods (pinned)
         run: |
