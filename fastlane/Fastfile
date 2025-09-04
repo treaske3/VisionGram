@@ -1,156 +1,105 @@
-default_platform :ios
+# fastlane/Fastfile
+default_platform(:ios)
 
 platform :ios do
-  desc "CI: build and upload to TestFlight"
+  desc "CI build + upload to TestFlight"
   lane :ci_beta do
-    require "open3"
+    require "base64"
+    require "tmpdir"
 
-    # ---------- Paths ----------
-    ROOT    = File.expand_path("..", __dir__)   # repo root (one up from fastlane/)
-    IOS_DIR = File.join(ROOT, "ios")
-    PODFILE = File.join(IOS_DIR, "Podfile")
-
-    # ---------- Keychain for CI ----------
+    UI.message("➡️  Creating CI keychain")
     create_keychain(
       name: "ci_keychain",
-      password: (ENV["CI_KEYCHAIN_PW"] || "visiongram_ci_#{Time.now.to_i}"),
       default_keychain: true,
       unlock: true,
       timeout: 3600,
-      lock_when_sleeps: false
+      add_to_search_list: true,
+      password: ENV.fetch("KEYCHAIN_PASSWORD", "ci_password")
     )
 
-    # ---------- App Store Connect API key ----------
-    api_key = app_store_connect_api_key(
-      key_id:      ENV.fetch("ASC_KEY_ID"),
-      issuer_id:   ENV.fetch("ASC_ISSUER_ID"),
-      key_content: ENV.fetch("ASC_API_KEY_P8"),
-      is_key_content_base64: false,
-      in_house:    false
-    )
+    UI.message("➡️  Installing provisioning profile from repo")
+    profile_path = "ios/profiles/VisionGram_AppStore_Push.mobileprovision"
+    UI.user_error!("Missing #{profile_path}. Commit the .mobileprovision there.") unless File.exist?(profile_path)
 
-    # ---------- Ensure ios/ exists (Expo prebuild fallback) ----------
-    unless Dir.exist?(IOS_DIR)
-      UI.important("No ios/ folder found — running Expo prebuild fallback…")
-      sh(%Q{bash -lc 'cd "#{ROOT}" && npx expo prebuild -p ios --no-install --clean'})
-      UI.user_error!("Expo prebuild did not create ios/") unless Dir.exist?(IOS_DIR)
-    end
+    # Put the profile where Xcode expects it and grab its UUID
+    profile_uuid = install_provisioning_profile(path: profile_path)
 
-    # ---------- Idempotent Podfile patch ----------
-    if File.exist?(PODFILE)
-      contents = File.read(PODFILE)
+    # Read the human name (specifier) for export options
+    profile_name_cmd = %Q[/usr/bin/security cms -D -i "#{profile_path}" | \
+      /usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin | tr -d '\\r']
+    profile_name = sh(profile_name_cmd).strip
+    UI.message("Provisioning profile installed:")
+    UI.message("  Name: #{profile_name}")
+    UI.message("  UUID: #{profile_uuid}")
 
-      # Remove unsupported privacy flag
-      contents = contents.gsub(/.*privacy_file_aggregation_enabled.*\n/, "")
-
-      # Remove any existing jsinspector lines to avoid duplicates
-      contents = contents.gsub(/.*React-jsinspector.*\n/, "")
-
-      # Ensure use_modular_headers! once (insert after platform line)
-      unless contents.include?("use_modular_headers!")
-        lines = contents.lines
-        idx = lines.index { |l| l.strip.start_with?("platform ") } || 0
-        lines.insert(idx + 1, "\nuse_modular_headers!\n")
-        contents = lines.join
-      end
-
-      # Choose jsinspector path for RN 0.74+ (modern) or fallback
-      js_modern = "../node_modules/react-native/ReactCommon/jsinspector-modern"
-      js_old    = "../node_modules/react-native/ReactCommon/jsinspector"
-      js_path   = Dir.exist?(File.join(IOS_DIR, js_modern)) ? js_modern : js_old
-
-      # Append one modular-headers definition if not present
-      unless contents.include?("pod 'React-jsinspector'")
-        contents << "\n  pod 'React-jsinspector', :path => '#{js_path}', :modular_headers => true\n"
-      end
-
-      File.write(PODFILE, contents)
+    UI.message("➡️  Importing distribution certificate (.p12)")
+    if ENV["DIST_CERT_P12_BASE64"].to_s.strip.empty?
+      UI.important("DIST_CERT_P12_BASE64 not set. Assuming certificate already present on runner.")
     else
-      UI.user_error!("Podfile not found at #{PODFILE}")
+      p12_tmp = File.join(Dir.tmpdir, "dist.p12")
+      File.binwrite(p12_tmp, Base64.decode64(ENV["DIST_CERT_P12_BASE64"]))
+      import_certificate(
+        certificate_path: p12_tmp,
+        certificate_password: ENV["DIST_CERT_PASSWORD"],
+        keychain_name: "ci_keychain",
+        keychain_password: ENV.fetch("KEYCHAIN_PASSWORD", "ci_password")
+      )
     end
 
-    # ---------- Install Pods ----------
-    sh(%Q{bash -lc 'cd "#{IOS_DIR}" && pod repo update'})
-    sh(%Q{bash -lc 'cd "#{IOS_DIR}" && pod install --repo-update'})
-
-    # ---------- Manual signing for Release (app target only) ----------
-    update_project_team(
-      path:    File.join(IOS_DIR, "VisionGram.xcodeproj"),
-      teamid:  ENV.fetch("TEAM_ID"),
-      targets: ["VisionGram"]
+    UI.message("➡️  App Store Connect API key (for upload)")
+    app_store_connect_api_key(
+      key_id:               ENV["ASC_KEY_ID"],
+      issuer_id:            ENV["ASC_ISSUER_ID"],
+      key_content:          ENV["ASC_KEY_CONTENT"], # base64 of .p8 content
+      is_key_content_base64: true,
+      in_house:             false
     )
 
-    # Use UUID if provided; otherwise fall back to Name
-    profile_uuid = ENV["PROFILE_UUID"].to_s.strip
-    profile_name = ENV["PROFILE_NAME"].to_s.strip
-    UI.message("Using profile UUID: #{profile_uuid}") unless profile_uuid.empty?
-    UI.message("Using profile NAME: #{profile_name}") if profile_uuid.empty? && !profile_name.empty?
+    UI.message("➡️  Pods")
+    sh("cd ios && pod repo update")
+    sh("cd ios && pod install --repo-update")
 
-    signing_opts = {
-      path:                  File.join(IOS_DIR, "VisionGram.xcodeproj"),
-      use_automatic_signing: false,                # MANUAL for Release (app target)
-      team_id:               ENV.fetch("TEAM_ID"),
-      targets:               ["VisionGram"],
-      build_configurations:  ["Release"],
-      code_sign_identity:    "Apple Distribution",
-      bundle_identifier:     ENV.fetch("APP_IDENTIFIER")
-    }
-    if !profile_uuid.empty?
-      signing_opts[:profile_uuid] = profile_uuid
-    elsif !profile_name.empty?
-      signing_opts[:profile_name] = profile_name
-    end
-    update_code_signing_settings(**signing_opts)
+    UI.message("➡️  Set manual signing on app target (Release only)")
+    update_project_team(
+      path: "ios/VisionGram.xcodeproj",
+      teamid: ENV.fetch("TEAM_ID")
+    )
 
-    # ---------- Build ----------
-    xcworkspace = Dir[File.join(IOS_DIR, "*.xcworkspace")].first || UI.user_error!("No .xcworkspace found in ios/")
-    scheme_name = ENV["IOS_SCHEME"] || "VisionGram"
+    update_code_signing_settings(
+      use_automatic_signing: false,
+      path: "ios/VisionGram.xcodeproj",
+      targets: ["VisionGram"],             # only the app target (not Pods)
+      build_configurations: ["Release"],
+      code_sign_identity: "Apple Distribution",
+      profile_uuid: profile_uuid,          # <- ensure the app target uses THIS profile
+      bundle_identifier: ENV.fetch("APP_IDENTIFIER")
+    )
 
-    # Ensure RN script can find node (fixes Exit 127 if bundling step runs)
-    node_bin = sh("which node").to_s.strip
-    node_bin = "/usr/local/bin/node" if node_bin.empty?
-
-    export_profiles_value =
-      if !profile_uuid.empty?
-        { ENV.fetch("APP_IDENTIFIER") => profile_uuid }
-      elsif !profile_name.empty?
-        { ENV.fetch("APP_IDENTIFIER") => profile_name }
-      else
-        {}
-      end
-
+    UI.message("➡️  Build & export (manual signing)")
     build_ios_app(
-      workspace:      xcworkspace,
-      scheme:         scheme_name,
-      configuration:  "Release",
-      export_method:  "app-store",
-      clean:          true,
-
-      # Minimal global args so we don't spill signing onto Pods
-      xcargs: "NODE_BINARY=#{node_bin}",
-
-      # Export maps the app bundle id to your profile UUID (preferred) or Name (fallback)
+      workspace: "ios/VisionGram.xcworkspace",
+      scheme: "VisionGram",
+      configuration: "Release",
+      export_method: "app-store",
+      clean: true,
+      include_bitcode: false,
+      # These options control the .ipa export phase and help Xcode pick the right profile again
       export_options: {
-        "signingStyle" => "manual",
-        "teamID" => ENV.fetch("TEAM_ID"),
-        "provisioningProfiles" => export_profiles_value
+        signingStyle: "manual",
+        teamID: ENV["TEAM_ID"],
+        provisioningProfiles: {
+          ENV["APP_IDENTIFIER"] => profile_name
+        }
       }
     )
 
-    upload_to_app_store(
-      api_key:            api_key,
-      skip_screenshots:   true,
-      skip_metadata:      true,
-      reject_if_possible: false,
-      submit_for_review:  false
+    UI.message("➡️  Upload to TestFlight")
+    upload_to_testflight(
+      skip_waiting_for_build_processing: true
     )
 
   ensure
-    # Cleanup — never fail job if keychain wasn’t created
-    begin
-      delete_keychain(name: "ci_keychain")
-    rescue => e
-      UI.important("Keychain cleanup skipped: #{e.class} - #{e.message}")
-    end
+    UI.message("🧹 Cleaning up CI keychain")
+    delete_keychain(name: "ci_keychain")
   end
 end
