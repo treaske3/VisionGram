@@ -3,9 +3,6 @@ name: iOS TestFlight (fixed)
 on:
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
   build-submit:
     runs-on: ubuntu-latest
@@ -25,51 +22,16 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
-      # Write asc_key.p8 from the JSON secret (kept in GitHub Secrets)
       - name: Write asc_key.p8 from secret
         env:
           ASC_JSON: ${{ secrets.APP_STORE_CONNECT_API_KEY_JSON }}
         run: |
           node -e "const fs=require('fs');const j=JSON.parse(process.env.ASC_JSON);fs.writeFileSync('asc_key.p8', j.key);"
 
-      # Ensure expo-modules-autolinking exists (auto-fix & push if missing)
-      - name: Ensure expo-modules-autolinking in package.json (auto-fix & push)
-        run: |
-          set -e
-          if [ -f package.json ]; then
-            node -e "
-              const fs=require('fs');
-              const p=JSON.parse(fs.readFileSync('package.json','utf8'));
-              const has=(p.devDependencies&&p.devDependencies['expo-modules-autolinking'])||(p.dependencies&&p.dependencies['expo-modules-autolinking']);
-              if(!has){
-                p.devDependencies = Object.assign({}, p.devDependencies, {'expo-modules-autolinking':'^2.1.4'});
-                fs.writeFileSync('package.json', JSON.stringify(p,null,2));
-                process.exit(10);
-              }
-            " || export NEED_PUSH=1
-            if [ "${NEED_PUSH}" = "1" ]; then
-              git config user.name "github-actions[bot]"
-              git config user.email "github-actions[bot]@users.noreply.github.com"
-              git add package.json
-              git commit -m "chore: add expo-modules-autolinking for EAS build"
-              git push
-            fi
-          fi
-
-      # Write a FULL runtime eas.json with BOTH build and submit profiles
-      - name: Write runtime eas.json (build + submit)
+      - name: Ensure eas.json for EAS Submit
         run: |
           cat > eas.json <<'JSON'
           {
-            "build": {
-              "production": {
-                "channel": "production",
-                "ios": {
-                  "autoIncrement": "version",
-                  "resourceClass": "default"
-                }
-              }
-            },
             "submit": {
               "production": {
                 "ios": {
@@ -82,17 +44,16 @@ jobs:
             }
           }
           JSON
-          echo "eas.json written:"
-          cat eas.json
 
       - name: Install EAS CLI
         run: npm install --global eas-cli
 
-      # Trigger a cloud build using the runtime build profile "production"
+      - name: Install expo-modules-autolinking
+        run: npm install --save-dev expo-modules-autolinking
+
       - name: EAS Build (iOS)
         run: eas build --platform ios --profile production --non-interactive --no-wait
 
-      # Submit the latest build to TestFlight using the runtime submit profile
       - name: EAS Submit (iOS)
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
