@@ -32,7 +32,7 @@ jobs:
         run: |
           node -e "const fs=require('fs');const j=JSON.parse(process.env.ASC_JSON);fs.writeFileSync('asc_key.p8', j.key);"
 
-      # Ensure the repo has expo-modules-autolinking; if missing, add it, commit, and push.
+      # Ensure expo-modules-autolinking exists (auto-fix & push if missing)
       - name: Ensure expo-modules-autolinking in package.json (auto-fix & push)
         run: |
           set -e
@@ -44,10 +44,7 @@ jobs:
               if(!has){
                 p.devDependencies = Object.assign({}, p.devDependencies, {'expo-modules-autolinking':'^2.1.4'});
                 fs.writeFileSync('package.json', JSON.stringify(p,null,2));
-                console.log('ADDED expo-modules-autolinking to devDependencies');
                 process.exit(10);
-              } else {
-                console.log('expo-modules-autolinking already present');
               }
             " || export NEED_PUSH=1
             if [ "${NEED_PUSH}" = "1" ]; then
@@ -57,15 +54,22 @@ jobs:
               git commit -m "chore: add expo-modules-autolinking for EAS build"
               git push
             fi
-          else
-            echo "No package.json at repo root; skipping auto-fix."
           fi
 
-      # Minimal runtime eas.json JUST for submit (avoids your conflicted file)
-      - name: Write runtime eas.json (submit profile only)
+      # Write a FULL runtime eas.json with BOTH build and submit profiles
+      - name: Write runtime eas.json (build + submit)
         run: |
           cat > eas.json <<'JSON'
           {
+            "build": {
+              "production": {
+                "channel": "production",
+                "ios": {
+                  "autoIncrement": "version",
+                  "resourceClass": "default"
+                }
+              }
+            },
             "submit": {
               "production": {
                 "ios": {
@@ -78,16 +82,17 @@ jobs:
             }
           }
           JSON
+          echo "eas.json written:"
           cat eas.json
 
       - name: Install EAS CLI
         run: npm install --global eas-cli
 
-      # Build in EAS cloud (uses your app config in the repo)
+      # Trigger a cloud build using the runtime build profile "production"
       - name: EAS Build (iOS)
         run: eas build --platform ios --profile production --non-interactive --no-wait
 
-      # Submit the latest build to TestFlight
+      # Submit the latest build to TestFlight using the runtime submit profile
       - name: EAS Submit (iOS)
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
