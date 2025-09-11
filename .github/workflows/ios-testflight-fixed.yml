@@ -1,117 +1,94 @@
-name: iOS TestFlight (stable)
+name: iOS TestFlight (fixed)
 
 on:
   workflow_dispatch:
 
-jobs:
-  build:
-    runs-on: macos-14
+permissions:
+  contents: write
 
+jobs:
+  build-submit:
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Ruby tools
-      - name: Install Fastlane & CocoaPods (pinned)
-        run: |
-          gem install fastlane -N
-          gem install cocoapods -v 1.14.3 -N
-          fastlane --version
-          pod --version
-
-      # Node toolchain
-      - name: Set up Node 18
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: '20'
 
-      - name: Install JS deps
-        run: npm install
+      - name: Expo login (EXPO_TOKEN)
+        uses: expo/expo-github-action@v8
+        with:
+          expo-version: latest
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
 
-      - name: Ensure expo-modules-autolinking is available
+      # Write asc_key.p8 from the JSON secret (kept in GitHub Secrets)
+      - name: Write asc_key.p8 from secret
+        env:
+          ASC_JSON: ${{ secrets.APP_STORE_CONNECT_API_KEY_JSON }}
         run: |
-          node -e "try{require('expo-modules-autolinking');process.exit(0)}catch(e){process.exit(1)}" \
-          || npm install --save-dev expo-modules-autolinking
+          node -e "const fs=require('fs');const j=JSON.parse(process.env.ASC_JSON);fs.writeFileSync('asc_key.p8', j.key);"
 
-      # Generate native iOS project
-      - name: Expo prebuild iOS
-        run: |
-          npx expo prebuild -p ios --no-install --clean
-          if [ ! -d "ios" ]; then
-            echo "::error::expo prebuild did not create ios/; aborting."
-            exit 1
-          fi
-
-      # Podfile patch (idempotent)
-      - name: Patch Podfile (remove privacy flag + jsinspector modular headers)
-        working-directory: ios
-        shell: bash
+      # Ensure the repo has expo-modules-autolinking; if missing, add it, commit, and push.
+      - name: Ensure expo-modules-autolinking in package.json (auto-fix & push)
         run: |
           set -e
-          # 1) Remove unsupported privacy flag (if present)
-          sed -i '' '/privacy_file_aggregation_enabled/d' Podfile || true
-          # 2) Remove ALL existing React-jsinspector lines (avoid duplicates)
-          sed -i '' '/React-jsinspector/d' Podfile || true
-          # 3) Ensure use_modular_headers! exists (insert once after platform line)
-          if ! grep -q "^use_modular_headers!" Podfile; then
-            awk '
-              BEGIN{added=0}
-              /^platform/ && added==0 {print; print ""; print "use_modular_headers!"; added=1; next}
-              {print}
-            ' Podfile > Podfile.tmp && mv Podfile.tmp Podfile
-          fi
-          # 4) Choose correct jsinspector path for RN 0.74+ (fallback to old path)
-          JSI_MODERN="../node_modules/react-native/ReactCommon/jsinspector-modern"
-          JSI_OLD="../node_modules/react-native/ReactCommon/jsinspector"
-          if [ -d "$JSI_MODERN" ]; then
-            JSI_PATH="$JSI_MODERN"
+          if [ -f package.json ]; then
+            node -e "
+              const fs=require('fs');
+              const p=JSON.parse(fs.readFileSync('package.json','utf8'));
+              const has=(p.devDependencies&&p.devDependencies['expo-modules-autolinking'])||(p.dependencies&&p.dependencies['expo-modules-autolinking']);
+              if(!has){
+                p.devDependencies = Object.assign({}, p.devDependencies, {'expo-modules-autolinking':'^2.1.4'});
+                fs.writeFileSync('package.json', JSON.stringify(p,null,2));
+                console.log('ADDED expo-modules-autolinking to devDependencies');
+                process.exit(10);
+              } else {
+                console.log('expo-modules-autolinking already present');
+              }
+            " || export NEED_PUSH=1
+            if [ "${NEED_PUSH}" = "1" ]; then
+              git config user.name "github-actions[bot]"
+              git config user.email "github-actions[bot]@users.noreply.github.com"
+              git add package.json
+              git commit -m "chore: add expo-modules-autolinking for EAS build"
+              git push
+            fi
           else
-            JSI_PATH="$JSI_OLD"
-          fi
-          # 5) Append ONE modular-headers definition for jsinspector
-          echo "  pod 'React-jsinspector', :path => '$JSI_PATH', :modular_headers => true" >> Podfile
-
-      - name: Validate Podfile before pods
-        working-directory: ios
-        run: |
-          echo "---- Podfile (head) ----"
-          sed -n '1,140p' Podfile
-          echo "------------------------"
-          COUNT=$(grep -c "React-jsinspector" Podfile || true)
-          if [ "$COUNT" -ne 1 ]; then
-            echo "::error::React-jsinspector entries in Podfile: $COUNT (expected 1)."
-            exit 1
-          fi
-          if ! grep -q "^use_modular_headers!" Podfile; then
-            echo "::error::use_modular_headers! not found in Podfile."
-            exit 1
+            echo "No package.json at repo root; skipping auto-fix."
           fi
 
-      # CocoaPods
-      - name: Install iOS pods
-        working-directory: ios
+      # Minimal runtime eas.json JUST for submit (avoids your conflicted file)
+      - name: Write runtime eas.json (submit profile only)
         run: |
-          pod repo update
-          pod install --repo-update
-          ls -la
+          cat > eas.json <<'JSON'
+          {
+            "submit": {
+              "production": {
+                "ios": {
+                  "ascApiKeyPath": "./asc_key.p8",
+                  "ascApiKeyIssuerId": "05448018-fd93-49f6-8700-e8c51d49b5c6",
+                  "ascApiKeyId": "HJ5S2PTMX4",
+                  "companyName": "VisionGram"
+                }
+              }
+            }
+          }
+          JSON
+          cat eas.json
 
-      - name: Show iOS dir (debug)
-        run: |
-          ls -la ios
-          echo "Workspace(s):"
-          ls -la ios/*.xcworkspace || true
+      - name: Install EAS CLI
+        run: npm install --global eas-cli
 
-      # Fastlane build & upload
-      - name: Fastlane (build & upload to TestFlight)
+      # Build in EAS cloud (uses your app config in the repo)
+      - name: EAS Build (iOS)
+        run: eas build --platform ios --profile production --non-interactive --no-wait
+
+      # Submit the latest build to TestFlight
+      - name: EAS Submit (iOS)
         env:
-          APP_IDENTIFIER: ${{ secrets.APP_IDENTIFIER }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          TEAM_ID: ${{ secrets.TEAM_ID }}
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
-          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
-          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
-          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-          IOS_SCHEME: ${{ vars.IOS_SCHEME }}
-        run: fastlane ios ci_beta
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: eas submit --platform ios --profile production --non-interactive
