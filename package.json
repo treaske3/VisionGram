@@ -14,7 +14,8 @@
     "react-native": "0.76.2"
   },
   "devDependencies": {
-    "@babel/core": "^7.25.2"
+    "@babel/core": "^7.25.2",
+    "expo-modules-autolinking": "^2.1.4"
   },
   "engines": {
     "node": ">=18"
