@@ -1,17 +1,8 @@
 {
-  "cli": {
-    "version": ">= 3.9.2",
-    "appVersionSource": "local"
-  },
+  "cli": { "version": ">= 6.0.0" },
   "build": {
-    "production": {}
-  },
-  "submit": {
     "production": {
-      "ios": {
-        "ascApiKeyPath": "./asc_key.p8",
-        "companyName": "VisionGram"
-      }
+      "ios": { "buildConfiguration": "Release" }
     }
   }
 }
