@@ -45,29 +45,24 @@ jobs:
                 p.devDependencies = Object.assign({}, p.devDependencies, {'expo-modules-autolinking':'^2.1.4'});
                 fs.writeFileSync('package.json', JSON.stringify(p,null,2));
                 process.exit(10);
-              } else {
-                console.log('expo-modules-autolinking already present');
               }
             " || export NEED_PUSH=1
-            if [ "${NEED_PUSH}" = "1" ]; then
-              git config user.name "github-actions[bot]"
-              git config user.email "github-actions[bot]@users.noreply.github.com"
+            if [ \"${NEED_PUSH}\" = \"1\" ]; then
+              git config user.name \"github-actions[bot]\"
+              git config user.email \"github-actions[bot]@users.noreply.github.com\"
               git add package.json
-              git commit -m "chore: add expo-modules-autolinking for EAS build"
+              git commit -m \"chore: add expo-modules-autolinking for EAS build\"
               git push
             fi
-          else
-            echo "No package.json at repo root; skipping auto-fix."
           fi
 
-      # Write a FULL runtime eas.json with BOTH build and submit profiles
+      # Write a FULL runtime eas.json with build and submit profiles
       - name: Write runtime eas.json (build + submit)
         run: |
           cat > eas.json <<'JSON'
           {
             "build": {
               "production": {
-                "channel": "production",
                 "ios": {
                   "autoIncrement": "version",
                   "resourceClass": "default"
@@ -92,13 +87,13 @@ jobs:
       - name: Install EAS CLI
         run: npm install --global eas-cli
 
-              # Configure iOS credentials in non‑interactive mode using your ASC API key
+      # Configure iOS credentials using the ASC API key
       - name: Configure iOS credentials
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-          run: npx eas -n credentials:configure-build --platform ios --profile production
+        run: npx eas credentials:configure-build -p ios -e production -n
 
-      # Build iOS and WAIT for completion (no --no-wait)
+      # Build iOS and wait for completion
       - name: EAS Build (iOS)
         run: eas build --platform ios --profile production --non-interactive
 
