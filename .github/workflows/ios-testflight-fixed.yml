@@ -92,12 +92,6 @@ jobs:
       - name: Install EAS CLI
         run: npm install --global eas-cli
 
-      # Configure iOS credentials using your App Store Connect API key
-      - name: Configure iOS credentials
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        run: npx eas credentials:configure-build -p ios -e production -n
-
       # Build ios and wait for completion
       - name: EAS Build (iOS)
         run: eas build --platform ios --profile production --non-interactive
