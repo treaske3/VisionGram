@@ -96,7 +96,7 @@ jobs:
       - name: Configure iOS credentials
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        run: npx eas credentials:configure-build --platform ios --profile production --non-interactive
+          run: npx eas credentials:configure-build --platform ios --profile production -n
 
       # Build iOS and WAIT for completion (no --no-wait)
       - name: EAS Build (iOS)
