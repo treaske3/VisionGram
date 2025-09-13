@@ -92,6 +92,12 @@ jobs:
       - name: Install EAS CLI
         run: npm install --global eas-cli
 
+              # Configure iOS credentials in non‑interactive mode using your ASC API key
+      - name: Configure iOS credentials
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: npx eas credentials:configure-build --platform ios --profile production --non-interactive
+
       # Build iOS and WAIT for completion (no --no-wait)
       - name: EAS Build (iOS)
         run: eas build --platform ios --profile production --non-interactive
